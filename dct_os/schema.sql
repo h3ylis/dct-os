@@ -69,31 +69,37 @@ CREATE TABLE IF NOT EXISTS resources (
     updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS dockets (
+CREATE TABLE IF NOT EXISTS docket_headers (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id          INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    work_order_id       INTEGER REFERENCES work_orders(id),
-    cost_code_id        INTEGER REFERENCES cost_codes(id),
     purchase_order_id   INTEGER REFERENCES purchase_orders(id),
-    resource_id         INTEGER REFERENCES resources(id),
     supplier_name       TEXT,
     date                TEXT    NOT NULL,
     docket_number       TEXT,
-    description         TEXT,
-    qty                 REAL    NOT NULL DEFAULT 0,
-    unit                TEXT,
-    rate                REAL    NOT NULL DEFAULT 0,
-    amount              REAL    NOT NULL DEFAULT 0,
     notes               TEXT,
     created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS docket_lines (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    docket_id           INTEGER NOT NULL REFERENCES docket_headers(id) ON DELETE CASCADE,
+    work_order_id       INTEGER REFERENCES work_orders(id),
+    cost_code_id        INTEGER REFERENCES cost_codes(id),
+    resource_id         INTEGER REFERENCES resources(id),
+    description         TEXT,
+    qty                 REAL    NOT NULL DEFAULT 0,
+    unit                TEXT,
+    rate                REAL    NOT NULL DEFAULT 0,
+    amount              REAL    NOT NULL DEFAULT 0,
+    sort_order          INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_cost_codes_project ON cost_codes(project_id);
 CREATE INDEX IF NOT EXISTS idx_work_orders_project ON work_orders(project_id);
 CREATE INDEX IF NOT EXISTS idx_purchase_orders_project ON purchase_orders(project_id);
-CREATE INDEX IF NOT EXISTS idx_dockets_project ON dockets(project_id);
-CREATE INDEX IF NOT EXISTS idx_dockets_cost_code ON dockets(cost_code_id);
-CREATE INDEX IF NOT EXISTS idx_dockets_work_order ON dockets(work_order_id);
-CREATE INDEX IF NOT EXISTS idx_dockets_purchase_order ON dockets(purchase_order_id);
-CREATE INDEX IF NOT EXISTS idx_dockets_date ON dockets(date);
+CREATE INDEX IF NOT EXISTS idx_docket_headers_project ON docket_headers(project_id);
+CREATE INDEX IF NOT EXISTS idx_docket_headers_date ON docket_headers(date);
+CREATE INDEX IF NOT EXISTS idx_docket_lines_docket ON docket_lines(docket_id);
+CREATE INDEX IF NOT EXISTS idx_docket_lines_work_order ON docket_lines(work_order_id);
+CREATE INDEX IF NOT EXISTS idx_docket_lines_cost_code ON docket_lines(cost_code_id);

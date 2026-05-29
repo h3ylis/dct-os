@@ -17,10 +17,14 @@ let purchaseOrdersGridApi = null;
 // Current modal context
 let modalContext = null;
 
-// Cached data for cascading dropdowns
+// Cached data for dropdowns
 let cachedWorkOrders = [];
 let cachedCostCodes = [];
 let cachedPurchaseOrders = [];
+let cachedResources = [];
+
+// Docket line management
+let docketLineCounter = 0;
 
 // --- Helpers ---
 
@@ -139,6 +143,9 @@ async function refreshProjectData() {
             apiFetch(`/api/projects/${activeProjectId}/purchase-orders`),
         ]);
     } catch (e) { /* non-critical */ }
+    if (cachedResources.length === 0) {
+        try { cachedResources = await apiFetch('/api/resources'); } catch (e) {}
+    }
 }
 
 // --- Panels ---
@@ -168,21 +175,20 @@ async function refreshCurrentPanel() {
     }
 }
 
-// --- Dockets Grid ---
+// --- Dockets Grid (header-level) ---
 
 function initDocketsGrid() {
     const columnDefs = [
         { field: 'date', headerName: 'Date', width: 110, sort: 'desc' },
         { field: 'docket_number', headerName: 'Docket #', width: 120 },
         { field: 'supplier_name', headerName: 'Supplier', width: 180 },
-        { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
-        { field: 'wo_number', headerName: 'WO', width: 110 },
-        { field: 'cost_code', headerName: 'CC', width: 90 },
         { field: 'po_number', headerName: 'PO', width: 90 },
-        { field: 'qty', headerName: 'Qty', width: 80, type: 'numericColumn' },
-        { field: 'unit', headerName: 'Unit', width: 70 },
-        { field: 'rate', headerName: 'Rate', width: 100, type: 'numericColumn', valueFormatter: currencyFormatter },
-        { field: 'amount', headerName: 'Amount', width: 120, type: 'numericColumn', valueFormatter: currencyFormatter },
+        { field: 'line_count', headerName: 'Lines', width: 70, type: 'numericColumn' },
+        { field: 'wo_numbers', headerName: 'WOs', width: 130,
+            valueFormatter: p => p.value || '' },
+        { field: 'cost_codes', headerName: 'CCs', width: 130,
+            valueFormatter: p => p.value || '' },
+        { field: 'total_amount', headerName: 'Amount', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter },
     ];
 
     const gridOptions = {
@@ -356,6 +362,7 @@ async function loadResources() {
     try {
         const data = await apiFetch('/api/resources');
         resourcesGridApi.setGridOption('rowData', data);
+        cachedResources = data;
     } catch (e) {
         toast('Failed to load resources', 'error');
     }
@@ -363,10 +370,13 @@ async function loadResources() {
 
 // --- Modals ---
 
-function openModal(title, html, context) {
+function openModal(title, html, context, wide) {
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-body').innerHTML = html;
-    document.getElementById('modal-overlay').classList.add('open');
+    const overlay = document.getElementById('modal-overlay');
+    const modal = overlay.querySelector('.modal');
+    modal.classList.toggle('modal-wide', !!wide);
+    overlay.classList.add('open');
     modalContext = context;
     const first = document.querySelector('.modal-body input, .modal-body select');
     if (first) first.focus();
@@ -374,7 +384,9 @@ function openModal(title, html, context) {
 
 function closeModal(event) {
     if (event && event.target !== document.getElementById('modal-overlay')) return;
-    document.getElementById('modal-overlay').classList.remove('open');
+    const overlay = document.getElementById('modal-overlay');
+    overlay.classList.remove('open');
+    overlay.querySelector('.modal').classList.remove('modal-wide');
     modalContext = null;
 }
 
@@ -626,19 +638,13 @@ function openResourceDialog(existing) {
     });
 }
 
+// --- Docket Dialog (Header + Lines) ---
+
 function openDocketDialog(existing) {
     if (!activeProjectId) { toast('Select a project first', 'error'); return; }
     const e = existing || {};
     const today = new Date().toISOString().slice(0, 10);
-
-    const woOptions = cachedWorkOrders
-        .filter(w => w.status === 'Active')
-        .map(w => `<option value="${w.id}"${e.work_order_id === w.id ? ' selected' : ''}>${esc(w.number)} — ${esc(w.description || '')}</option>`)
-        .join('');
-
-    const ccOptions = cachedCostCodes
-        .map(c => `<option value="${c.id}"${e.cost_code_id === c.id ? ' selected' : ''}>${esc(c.code)} — ${esc(c.description || '')}</option>`)
-        .join('');
+    docketLineCounter = 0;
 
     const poOptions = cachedPurchaseOrders
         .filter(p => p.is_active)
@@ -646,88 +652,97 @@ function openDocketDialog(existing) {
         .join('');
 
     const html = `
-        <div class="form-row">
-            <div class="form-group">
-                <label>Date *</label>
-                <input type="date" id="f-dk-date" value="${e.date || today}">
+        <div class="docket-entry" id="docket-entry">
+            <div class="pdf-pane" id="docket-pdf-pane">
+                <div class="pdf-pane-header">
+                    <span>Source Document</span>
+                    <button class="pdf-pane-close" onclick="togglePdfPane()">&times;</button>
+                </div>
+                <div class="pdf-pane-body">
+                    <div class="pdf-placeholder">
+                        <div style="font-size:32px;margin-bottom:12px">&#128196;</div>
+                        <div>PDF viewer</div>
+                        <div style="font-size:11px;margin-top:4px;color:var(--text-muted)">Available in Phase 4</div>
+                    </div>
+                </div>
             </div>
-            <div class="form-group">
-                <label>Docket #</label>
-                <input type="text" id="f-dk-number" value="${esc(e.docket_number || '')}">
+            <button class="pdf-toggle" id="pdf-toggle" onclick="togglePdfPane()" title="Toggle PDF viewer">&#9664;</button>
+            <div class="docket-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Date *</label>
+                        <input type="date" id="f-dk-date" value="${e.date || today}">
+                    </div>
+                    <div class="form-group">
+                        <label>Docket #</label>
+                        <input type="text" id="f-dk-number" value="${esc(e.docket_number || '')}">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Supplier</label>
+                        <input type="text" id="f-dk-supplier" value="${esc(e.supplier_name || '')}">
+                    </div>
+                    <div class="form-group">
+                        <label>Purchase Order</label>
+                        <select id="f-dk-po">
+                            <option value="">-- Select PO --</option>
+                            ${poOptions}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="docket-lines-section">
+                    <div class="docket-lines-header">
+                        <span class="docket-lines-title">Line Items</span>
+                        <button class="btn-sm btn-primary" onclick="addDocketLine()">+ Add Line</button>
+                    </div>
+                    <div class="docket-lines-scroll">
+                        <table class="docket-lines-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-wo">WO</th>
+                                    <th class="col-cc">CC</th>
+                                    <th class="col-res">Resource</th>
+                                    <th class="col-desc">Description</th>
+                                    <th class="col-qty">Qty</th>
+                                    <th class="col-unit">Unit</th>
+                                    <th class="col-rate">Rate</th>
+                                    <th class="col-amt">Amount</th>
+                                    <th class="col-rm"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="docket-lines-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="docket-total-bar">
+                    <span>Total</span>
+                    <span class="docket-grand-total" id="docket-grand-total">$0.00</span>
+                </div>
+
+                <div class="form-group" style="margin-top:12px">
+                    <label>Notes</label>
+                    <textarea id="f-dk-notes" rows="2">${esc(e.notes || '')}</textarea>
+                </div>
             </div>
-        </div>
-        <div class="form-group">
-            <label>Work Order</label>
-            <select id="f-dk-wo" onchange="onDocketWOChange()">
-                <option value="">— Select WO —</option>
-                ${woOptions}
-            </select>
-        </div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>Cost Code</label>
-                <select id="f-dk-cc">
-                    <option value="">— Select CC —</option>
-                    ${ccOptions}
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Purchase Order</label>
-                <select id="f-dk-po">
-                    <option value="">— Select PO —</option>
-                    ${poOptions}
-                </select>
-            </div>
-        </div>
-        <div class="form-group">
-            <label>Supplier</label>
-            <input type="text" id="f-dk-supplier" value="${esc(e.supplier_name || '')}">
-        </div>
-        <div class="form-group">
-            <label>Description</label>
-            <input type="text" id="f-dk-desc" value="${esc(e.description || '')}">
-        </div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>Qty</label>
-                <input type="number" id="f-dk-qty" step="0.01" value="${e.qty || 0}" oninput="calcDocketAmount()">
-            </div>
-            <div class="form-group">
-                <label>Unit</label>
-                <input type="text" id="f-dk-unit" value="${esc(e.unit || '')}" placeholder="Hr, Day, Tonne...">
-            </div>
-            <div class="form-group">
-                <label>Rate</label>
-                <input type="number" id="f-dk-rate" step="0.01" value="${e.rate || 0}" oninput="calcDocketAmount()">
-            </div>
-        </div>
-        <div class="form-group">
-            <label>Amount</label>
-            <input type="number" id="f-dk-amount" step="0.01" value="${e.amount || 0}">
-        </div>
-        <div class="form-group">
-            <label>Notes</label>
-            <textarea id="f-dk-notes" rows="2">${esc(e.notes || '')}</textarea>
         </div>
     `;
+
     openModal(existing ? 'Edit Docket' : 'New Docket', html, {
         successMsg: existing ? 'Docket updated' : 'Docket created',
         save: async () => {
             const body = {
                 date: document.getElementById('f-dk-date').value,
                 docket_number: document.getElementById('f-dk-number').value || null,
-                work_order_id: parseInt(document.getElementById('f-dk-wo').value) || null,
-                cost_code_id: parseInt(document.getElementById('f-dk-cc').value) || null,
-                purchase_order_id: parseInt(document.getElementById('f-dk-po').value) || null,
                 supplier_name: document.getElementById('f-dk-supplier').value || null,
-                description: document.getElementById('f-dk-desc').value || null,
-                qty: parseFloat(document.getElementById('f-dk-qty').value) || 0,
-                unit: document.getElementById('f-dk-unit').value || null,
-                rate: parseFloat(document.getElementById('f-dk-rate').value) || 0,
-                amount: parseFloat(document.getElementById('f-dk-amount').value) || 0,
+                purchase_order_id: parseInt(document.getElementById('f-dk-po').value) || null,
                 notes: document.getElementById('f-dk-notes').value || null,
+                lines: collectDocketLines(),
             };
             if (!body.date) { toast('Date is required', 'error'); throw new Error('validation'); }
+            if (body.lines.length === 0) { toast('Add at least one line', 'error'); throw new Error('validation'); }
             if (existing) {
                 await apiRequest('PUT', `/api/dockets/${existing.id}`, body);
             } else {
@@ -735,56 +750,151 @@ function openDocketDialog(existing) {
             }
             await loadSummary();
         },
-    });
+    }, true);
 
-    if (e.work_order_id) {
-        onDocketWOChange();
+    // Populate existing lines or add one empty line
+    if (e.lines && e.lines.length > 0) {
+        e.lines.forEach(ln => addDocketLine(ln));
+    } else {
+        addDocketLine();
+    }
+    updateGrandTotal();
+}
+
+function addDocketLine(data) {
+    const idx = docketLineCounter++;
+    const d = data || {};
+
+    const woOpts = cachedWorkOrders
+        .filter(w => w.status === 'Active')
+        .map(w => `<option value="${w.id}"${d.work_order_id === w.id ? ' selected' : ''}>${esc(w.number)}</option>`)
+        .join('');
+
+    const ccOpts = cachedCostCodes
+        .map(c => `<option value="${c.id}"${d.cost_code_id === c.id ? ' selected' : ''}>${esc(c.code)}</option>`)
+        .join('');
+
+    const resOpts = cachedResources
+        .map(r => `<option value="${r.id}"${d.resource_id === r.id ? ' selected' : ''}>${esc(r.description)}</option>`)
+        .join('');
+
+    const tr = document.createElement('tr');
+    tr.id = `dkline-${idx}`;
+    tr.innerHTML = `
+        <td class="col-wo"><select id="ln-wo-${idx}" onchange="onLineWOChange(${idx})" title="Work Order">
+            <option value="">--</option>${woOpts}
+        </select></td>
+        <td class="col-cc"><select id="ln-cc-${idx}" title="Cost Code">
+            <option value="">--</option>${ccOpts}
+        </select></td>
+        <td class="col-res"><select id="ln-res-${idx}" onchange="onLineResourceChange(${idx})" title="Resource">
+            <option value="">--</option>${resOpts}
+        </select></td>
+        <td class="col-desc"><input type="text" id="ln-desc-${idx}" value="${esc(d.description || '')}" placeholder="Description"></td>
+        <td class="col-qty"><input type="number" id="ln-qty-${idx}" step="0.01" value="${d.qty || ''}" oninput="updateLineAmount(${idx})" placeholder="0"></td>
+        <td class="col-unit"><input type="text" id="ln-unit-${idx}" value="${esc(d.unit || '')}" placeholder="Hr"></td>
+        <td class="col-rate"><input type="number" id="ln-rate-${idx}" step="0.01" value="${d.rate || ''}" oninput="updateLineAmount(${idx})" placeholder="0.00"></td>
+        <td class="col-amt"><span id="ln-amt-${idx}" class="line-amount">${currency(d.amount || 0)}</span></td>
+        <td class="col-rm"><button class="btn-line-remove" onclick="removeDocketLine(${idx})" title="Remove line">&times;</button></td>
+    `;
+    document.getElementById('docket-lines-body').appendChild(tr);
+
+    if (d.work_order_id) {
+        onLineWOChange(idx);
     }
 }
 
-async function onDocketWOChange() {
-    const woId = parseInt(document.getElementById('f-dk-wo').value);
-    const ccSelect = document.getElementById('f-dk-cc');
-    const poSelect = document.getElementById('f-dk-po');
+function removeDocketLine(idx) {
+    const tr = document.getElementById(`dkline-${idx}`);
+    if (tr) tr.remove();
+    updateGrandTotal();
+}
+
+async function onLineWOChange(idx) {
+    const woId = parseInt(document.getElementById(`ln-wo-${idx}`).value);
+    const ccSelect = document.getElementById(`ln-cc-${idx}`);
     const currentCC = ccSelect.value;
-    const currentPO = poSelect.value;
 
     if (!woId) {
-        ccSelect.innerHTML = '<option value="">— Select CC —</option>' +
-            cachedCostCodes.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.description || '')}</option>`).join('');
-        poSelect.innerHTML = '<option value="">— Select PO —</option>' +
-            cachedPurchaseOrders.filter(p => p.is_active).map(p => `<option value="${p.id}">${esc(p.number)} — ${esc(p.supplier_name || '')}</option>`).join('');
+        ccSelect.innerHTML = '<option value="">--</option>' +
+            cachedCostCodes.map(c => `<option value="${c.id}"${c.id == currentCC ? ' selected' : ''}>${esc(c.code)}</option>`).join('');
         return;
     }
 
     try {
-        const [validCCs, validPOs] = await Promise.all([
-            apiFetch(`/api/work-orders/${woId}/cost-codes`),
-            apiFetch(`/api/purchase-orders?wo=${woId}`).catch(() => null),
-        ]);
-
+        const validCCs = await apiFetch(`/api/work-orders/${woId}/cost-codes`);
         if (validCCs && validCCs.length > 0) {
-            ccSelect.innerHTML = '<option value="">— Select CC —</option>' +
-                validCCs.map(c => `<option value="${c.id}"${c.id == currentCC ? ' selected' : ''}>${esc(c.code)} — ${esc(c.description || '')}</option>`).join('');
-            if (validCCs.length === 1) {
-                ccSelect.value = validCCs[0].id;
-            }
+            ccSelect.innerHTML = '<option value="">--</option>' +
+                validCCs.map(c => `<option value="${c.id}"${c.id == currentCC ? ' selected' : ''}>${esc(c.code)}</option>`).join('');
+            if (validCCs.length === 1) ccSelect.value = validCCs[0].id;
         }
-
-        const woPOs = cachedPurchaseOrders.filter(p => p.is_active);
-        try {
-            const linkedPOs = await apiFetch(`/api/purchase-orders/${woId}/work-orders`).catch(() => []);
-        } catch (e) {}
-
-        poSelect.innerHTML = '<option value="">— Select PO —</option>' +
-            woPOs.map(p => `<option value="${p.id}"${p.id == currentPO ? ' selected' : ''}>${esc(p.number)} — ${esc(p.supplier_name || '')}</option>`).join('');
-    } catch (e) { /* fallback: keep full lists */ }
+    } catch (e) { /* keep full list */ }
 }
 
-function calcDocketAmount() {
-    const qty = parseFloat(document.getElementById('f-dk-qty').value) || 0;
-    const rate = parseFloat(document.getElementById('f-dk-rate').value) || 0;
-    document.getElementById('f-dk-amount').value = (qty * rate).toFixed(2);
+function onLineResourceChange(idx) {
+    const resId = parseInt(document.getElementById(`ln-res-${idx}`).value);
+    if (!resId) return;
+    const res = cachedResources.find(r => r.id === resId);
+    if (!res) return;
+
+    const descEl = document.getElementById(`ln-desc-${idx}`);
+    const unitEl = document.getElementById(`ln-unit-${idx}`);
+    const rateEl = document.getElementById(`ln-rate-${idx}`);
+
+    if (!descEl.value) descEl.value = res.description;
+    unitEl.value = res.unit;
+    rateEl.value = res.standard_rate || '';
+    updateLineAmount(idx);
+}
+
+function updateLineAmount(idx) {
+    const qty = parseFloat(document.getElementById(`ln-qty-${idx}`).value) || 0;
+    const rate = parseFloat(document.getElementById(`ln-rate-${idx}`).value) || 0;
+    const amt = qty * rate;
+    document.getElementById(`ln-amt-${idx}`).textContent = currency(amt);
+    updateGrandTotal();
+}
+
+function updateGrandTotal() {
+    let total = 0;
+    document.querySelectorAll('#docket-lines-body tr').forEach(tr => {
+        const idx = tr.id.replace('dkline-', '');
+        const qty = parseFloat(document.getElementById(`ln-qty-${idx}`)?.value) || 0;
+        const rate = parseFloat(document.getElementById(`ln-rate-${idx}`)?.value) || 0;
+        total += qty * rate;
+    });
+    const el = document.getElementById('docket-grand-total');
+    if (el) el.textContent = currency(total);
+}
+
+function collectDocketLines() {
+    const lines = [];
+    document.querySelectorAll('#docket-lines-body tr').forEach((tr, i) => {
+        const idx = tr.id.replace('dkline-', '');
+        const qty = parseFloat(document.getElementById(`ln-qty-${idx}`).value) || 0;
+        const rate = parseFloat(document.getElementById(`ln-rate-${idx}`).value) || 0;
+        lines.push({
+            work_order_id: parseInt(document.getElementById(`ln-wo-${idx}`).value) || null,
+            cost_code_id: parseInt(document.getElementById(`ln-cc-${idx}`).value) || null,
+            resource_id: parseInt(document.getElementById(`ln-res-${idx}`).value) || null,
+            description: document.getElementById(`ln-desc-${idx}`).value || null,
+            qty,
+            unit: document.getElementById(`ln-unit-${idx}`).value || null,
+            rate,
+            sort_order: i,
+        });
+    });
+    return lines;
+}
+
+function togglePdfPane() {
+    const entry = document.getElementById('docket-entry');
+    const toggle = document.getElementById('pdf-toggle');
+    if (!entry) return;
+    entry.classList.toggle('pdf-open');
+    if (toggle) {
+        toggle.innerHTML = entry.classList.contains('pdf-open') ? '&#9654;' : '&#9664;';
+    }
 }
 
 // --- Utilities ---

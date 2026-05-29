@@ -10,10 +10,11 @@ def list_purchase_orders(project_id):
     db = get_db()
     rows = db.execute(
         """SELECT po.*,
-                  COALESCE(SUM(d.amount), 0) AS spent,
-                  po.value - COALESCE(SUM(d.amount), 0) AS remaining
+                  COALESCE(SUM(dl.amount), 0) AS spent,
+                  po.value - COALESCE(SUM(dl.amount), 0) AS remaining
            FROM purchase_orders po
-           LEFT JOIN dockets d ON d.purchase_order_id = po.id
+           LEFT JOIN docket_headers dh ON dh.purchase_order_id = po.id
+           LEFT JOIN docket_lines dl ON dl.docket_id = dh.id
            WHERE po.project_id = ?
            GROUP BY po.id
            ORDER BY po.number""",
@@ -27,10 +28,11 @@ def get_purchase_order(po_id):
     db = get_db()
     row = db.execute(
         """SELECT po.*,
-                  COALESCE(SUM(d.amount), 0) AS spent,
-                  po.value - COALESCE(SUM(d.amount), 0) AS remaining
+                  COALESCE(SUM(dl.amount), 0) AS spent,
+                  po.value - COALESCE(SUM(dl.amount), 0) AS remaining
            FROM purchase_orders po
-           LEFT JOIN dockets d ON d.purchase_order_id = po.id
+           LEFT JOIN docket_headers dh ON dh.purchase_order_id = po.id
+           LEFT JOIN docket_lines dl ON dl.docket_id = dh.id
            WHERE po.id = ?
            GROUP BY po.id""",
         (po_id,),

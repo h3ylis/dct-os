@@ -82,32 +82,107 @@ def test_dockets_for_project(client):
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert len(data) > 0
-    assert "wo_number" in data[0]
-    assert "po_number" in data[0]
+    first = data[0]
+    assert "lines" in first
+    assert "total_amount" in first
+    assert "line_count" in first
+    assert "po_number" in first
+    assert "wo_numbers" in first
+    assert first["line_count"] == len(first["lines"])
+    assert first["total_amount"] > 0
 
 
-def test_create_docket(client):
+def test_get_single_docket(client):
+    resp = client.get("/api/dockets/1")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["id"] == 1
+    assert "lines" in data
+    assert len(data["lines"]) == 2
+    assert data["lines"][0]["wo_number"] is not None
+    assert data["lines"][0]["cost_code"] is not None
+
+
+def test_create_docket_with_lines(client):
     resp = client.post(
         "/api/projects/1/dockets",
         data=json.dumps({
             "date": "2025-05-01",
             "supplier_name": "Test Supplier",
-            "description": "Test docket",
-            "qty": 8.0,
-            "unit": "Hr",
-            "rate": 100.00,
-            "work_order_id": 1,
-            "cost_code_id": 1,
+            "docket_number": "TST-001",
             "purchase_order_id": 1,
+            "lines": [
+                {
+                    "work_order_id": 1,
+                    "cost_code_id": 1,
+                    "description": "Line A",
+                    "qty": 8.0,
+                    "unit": "Hr",
+                    "rate": 100.00,
+                },
+                {
+                    "work_order_id": 2,
+                    "cost_code_id": 2,
+                    "description": "Line B",
+                    "qty": 4.0,
+                    "unit": "Hr",
+                    "rate": 200.00,
+                },
+            ],
         }),
         content_type="application/json",
     )
     assert resp.status_code == 201
     data = json.loads(resp.data)
-    assert data["amount"] == 800.0
     assert data["supplier_name"] == "Test Supplier"
-    assert data["work_order_id"] == 1
     assert data["purchase_order_id"] == 1
+    assert data["line_count"] == 2
+    assert data["total_amount"] == 1600.0
+    assert data["lines"][0]["amount"] == 800.0
+    assert data["lines"][1]["amount"] == 800.0
+
+
+def test_update_docket_header(client):
+    resp = client.put(
+        "/api/dockets/1",
+        data=json.dumps({"supplier_name": "Updated Supplier"}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["supplier_name"] == "Updated Supplier"
+    assert len(data["lines"]) == 2
+
+
+def test_update_docket_lines(client):
+    resp = client.put(
+        "/api/dockets/1",
+        data=json.dumps({
+            "lines": [
+                {
+                    "work_order_id": 1,
+                    "cost_code_id": 1,
+                    "description": "Replaced line",
+                    "qty": 10.0,
+                    "unit": "Hr",
+                    "rate": 50.00,
+                },
+            ],
+        }),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["line_count"] == 1
+    assert data["total_amount"] == 500.0
+    assert data["lines"][0]["description"] == "Replaced line"
+
+
+def test_delete_docket(client):
+    resp = client.delete("/api/dockets/1")
+    assert resp.status_code == 200
+    check = client.get("/api/dockets/1")
+    assert check.status_code == 404
 
 
 def test_project_summary(client):
