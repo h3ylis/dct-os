@@ -9,10 +9,18 @@ bp = Blueprint("dockets", __name__)
 def list_dockets(project_id):
     db = get_db()
     rows = db.execute(
-        """SELECT d.*, cc.code AS cost_code, r.description AS resource_description
+        """SELECT d.*,
+                  cc.code AS cost_code,
+                  r.description AS resource_description,
+                  wo.number AS wo_number,
+                  wo.description AS wo_description,
+                  po.number AS po_number,
+                  po.supplier_name AS po_supplier
            FROM dockets d
            LEFT JOIN cost_codes cc ON d.cost_code_id = cc.id
            LEFT JOIN resources r ON d.resource_id = r.id
+           LEFT JOIN work_orders wo ON d.work_order_id = wo.id
+           LEFT JOIN purchase_orders po ON d.purchase_order_id = po.id
            WHERE d.project_id = ?
            ORDER BY d.date DESC, d.id DESC""",
         (project_id,),
@@ -24,10 +32,16 @@ def list_dockets(project_id):
 def get_docket(docket_id):
     db = get_db()
     row = db.execute(
-        """SELECT d.*, cc.code AS cost_code, r.description AS resource_description
+        """SELECT d.*,
+                  cc.code AS cost_code,
+                  r.description AS resource_description,
+                  wo.number AS wo_number,
+                  po.number AS po_number
            FROM dockets d
            LEFT JOIN cost_codes cc ON d.cost_code_id = cc.id
            LEFT JOIN resources r ON d.resource_id = r.id
+           LEFT JOIN work_orders wo ON d.work_order_id = wo.id
+           LEFT JOIN purchase_orders po ON d.purchase_order_id = po.id
            WHERE d.id = ?""",
         (docket_id,),
     ).fetchone()
@@ -49,13 +63,15 @@ def create_docket(project_id):
 
     cur = db.execute(
         """INSERT INTO dockets
-           (project_id, cost_code_id, resource_id, supplier_name, date,
-            docket_number, description, qty, unit, rate, amount,
-            wo_number, po_number, notes)
+           (project_id, work_order_id, cost_code_id, purchase_order_id,
+            resource_id, supplier_name, date, docket_number, description,
+            qty, unit, rate, amount, notes)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             project_id,
+            data.get("work_order_id"),
             data.get("cost_code_id"),
+            data.get("purchase_order_id"),
             data.get("resource_id"),
             data.get("supplier_name"),
             data["date"],
@@ -65,8 +81,6 @@ def create_docket(project_id):
             data.get("unit"),
             rate,
             amount,
-            data.get("wo_number"),
-            data.get("po_number"),
             data.get("notes"),
         ),
     )
@@ -86,9 +100,10 @@ def update_docket(docket_id):
         return jsonify({"error": "Docket not found"}), 404
 
     fields = [
-        "cost_code_id", "resource_id", "supplier_name", "date",
+        "work_order_id", "cost_code_id", "purchase_order_id",
+        "resource_id", "supplier_name", "date",
         "docket_number", "description", "qty", "unit", "rate", "amount",
-        "wo_number", "po_number", "notes",
+        "notes",
     ]
     updates = {f: data[f] for f in fields if f in data}
 
@@ -137,3 +152,20 @@ def project_summary(project_id):
         (project_id,),
     ).fetchone()
     return jsonify(dict(summary))
+
+
+@bp.route("/projects/<int:project_id>/cost-report", methods=["GET"])
+def cost_report(project_id):
+    db = get_db()
+    rows = db.execute(
+        """SELECT cc.code, cc.description, cc.budget_amount,
+                  COALESCE(SUM(d.amount), 0) AS actual_spend,
+                  cc.budget_amount - COALESCE(SUM(d.amount), 0) AS variance
+           FROM cost_codes cc
+           LEFT JOIN dockets d ON d.cost_code_id = cc.id AND d.project_id = cc.project_id
+           WHERE cc.project_id = ?
+           GROUP BY cc.id
+           ORDER BY cc.code""",
+        (project_id,),
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])

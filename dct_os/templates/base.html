@@ -21,6 +21,8 @@
         <nav id="header-nav">
             <button class="nav-btn" onclick="showPanel('dockets')" id="tab-dockets">Dockets</button>
             <button class="nav-btn" onclick="showPanel('cost-codes')" id="tab-cost-codes">Cost Codes</button>
+            <button class="nav-btn" onclick="showPanel('work-orders')" id="tab-work-orders">Work Orders</button>
+            <button class="nav-btn" onclick="showPanel('purchase-orders')" id="tab-purchase-orders">Purchase Orders</button>
             <button class="nav-btn" onclick="showPanel('resources')" id="tab-resources">Resources</button>
         </nav>
     </header>
@@ -65,6 +67,26 @@
                     </div>
                 </div>
                 <div id="cost-codes-grid" class="ag-theme-alpine grid-container"></div>
+            </div>
+
+            <div class="panel" id="panel-work-orders">
+                <div class="panel-toolbar">
+                    <h2>Work Orders</h2>
+                    <div class="toolbar-actions">
+                        <button class="btn btn-primary" onclick="openWorkOrderDialog()">+ Add Work Order</button>
+                    </div>
+                </div>
+                <div id="work-orders-grid" class="ag-theme-alpine grid-container"></div>
+            </div>
+
+            <div class="panel" id="panel-purchase-orders">
+                <div class="panel-toolbar">
+                    <h2>Purchase Orders</h2>
+                    <div class="toolbar-actions">
+                        <button class="btn btn-primary" onclick="openPurchaseOrderDialog()">+ Add Purchase Order</button>
+                    </div>
+                </div>
+                <div id="purchase-orders-grid" class="ag-theme-alpine grid-container"></div>
             </div>
 
             <div class="panel" id="panel-resources">

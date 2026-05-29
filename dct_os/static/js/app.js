@@ -11,9 +11,16 @@ let projectSearchTerm = '';
 let docketsGridApi = null;
 let costCodesGridApi = null;
 let resourcesGridApi = null;
+let workOrdersGridApi = null;
+let purchaseOrdersGridApi = null;
 
 // Current modal context
 let modalContext = null;
+
+// Cached data for cascading dropdowns
+let cachedWorkOrders = [];
+let cachedCostCodes = [];
+let cachedPurchaseOrders = [];
 
 // --- Helpers ---
 
@@ -114,11 +121,24 @@ async function selectProject(id) {
     }
     renderProjectList();
 
+    await refreshProjectData();
+
     if (activePanel === 'empty') {
         showPanel('dockets');
     } else {
         await refreshCurrentPanel();
     }
+}
+
+async function refreshProjectData() {
+    if (!activeProjectId) return;
+    try {
+        [cachedWorkOrders, cachedCostCodes, cachedPurchaseOrders] = await Promise.all([
+            apiFetch(`/api/projects/${activeProjectId}/work-orders`),
+            apiFetch(`/api/projects/${activeProjectId}/cost-codes`),
+            apiFetch(`/api/projects/${activeProjectId}/purchase-orders`),
+        ]);
+    } catch (e) { /* non-critical */ }
 }
 
 // --- Panels ---
@@ -142,6 +162,8 @@ async function refreshCurrentPanel() {
     switch (activePanel) {
         case 'dockets': await loadDockets(); await loadSummary(); break;
         case 'cost-codes': await loadCostCodes(); break;
+        case 'work-orders': await loadWorkOrders(); break;
+        case 'purchase-orders': await loadPurchaseOrders(); break;
         case 'resources': await loadResources(); break;
     }
 }
@@ -154,13 +176,13 @@ function initDocketsGrid() {
         { field: 'docket_number', headerName: 'Docket #', width: 120 },
         { field: 'supplier_name', headerName: 'Supplier', width: 180 },
         { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
-        { field: 'cost_code', headerName: 'Cost Code', width: 110 },
+        { field: 'wo_number', headerName: 'WO', width: 110 },
+        { field: 'cost_code', headerName: 'CC', width: 90 },
+        { field: 'po_number', headerName: 'PO', width: 90 },
         { field: 'qty', headerName: 'Qty', width: 80, type: 'numericColumn' },
         { field: 'unit', headerName: 'Unit', width: 70 },
         { field: 'rate', headerName: 'Rate', width: 100, type: 'numericColumn', valueFormatter: currencyFormatter },
         { field: 'amount', headerName: 'Amount', width: 120, type: 'numericColumn', valueFormatter: currencyFormatter },
-        { field: 'wo_number', headerName: 'WO', width: 100 },
-        { field: 'po_number', headerName: 'PO', width: 100 },
     ];
 
     const gridOptions = {
@@ -225,8 +247,81 @@ async function loadCostCodes() {
     try {
         const data = await apiFetch(`/api/projects/${activeProjectId}/cost-codes`);
         costCodesGridApi.setGridOption('rowData', data);
+        cachedCostCodes = data;
     } catch (e) {
         toast('Failed to load cost codes', 'error');
+    }
+}
+
+// --- Work Orders Grid ---
+
+function initWorkOrdersGrid() {
+    const columnDefs = [
+        { field: 'number', headerName: 'WO Number', width: 140 },
+        { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
+        { field: 'status', headerName: 'Status', width: 100 },
+    ];
+
+    const gridOptions = {
+        columnDefs,
+        rowData: [],
+        defaultColDef: { resizable: true, sortable: true, filter: true },
+        animateRows: true,
+        suppressCellFocus: true,
+        onRowDoubleClicked: params => openWorkOrderDialog(params.data),
+    };
+
+    const el = document.getElementById('work-orders-grid');
+    workOrdersGridApi = agGrid.createGrid(el, gridOptions);
+}
+
+async function loadWorkOrders() {
+    if (!activeProjectId || !workOrdersGridApi) return;
+    try {
+        const data = await apiFetch(`/api/projects/${activeProjectId}/work-orders`);
+        workOrdersGridApi.setGridOption('rowData', data);
+        cachedWorkOrders = data;
+    } catch (e) {
+        toast('Failed to load work orders', 'error');
+    }
+}
+
+// --- Purchase Orders Grid ---
+
+function initPurchaseOrdersGrid() {
+    const columnDefs = [
+        { field: 'number', headerName: 'PO Number', width: 120 },
+        { field: 'supplier_name', headerName: 'Supplier', flex: 1, minWidth: 180 },
+        { field: 'value', headerName: 'PO Value', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter },
+        { field: 'spent', headerName: 'Spent', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter },
+        { field: 'remaining', headerName: 'Remaining', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter,
+            cellStyle: params => params.value < 0 ? { color: '#dc2626', fontWeight: '600' } : null },
+        { field: 'raised_date', headerName: 'Raised', width: 110 },
+        { field: 'is_active', headerName: 'Active', width: 80,
+            valueFormatter: params => params.value ? 'Yes' : 'No' },
+    ];
+
+    const gridOptions = {
+        columnDefs,
+        rowData: [],
+        defaultColDef: { resizable: true, sortable: true, filter: true },
+        animateRows: true,
+        suppressCellFocus: true,
+        onRowDoubleClicked: params => openPurchaseOrderDialog(params.data),
+    };
+
+    const el = document.getElementById('purchase-orders-grid');
+    purchaseOrdersGridApi = agGrid.createGrid(el, gridOptions);
+}
+
+async function loadPurchaseOrders() {
+    if (!activeProjectId || !purchaseOrdersGridApi) return;
+    try {
+        const data = await apiFetch(`/api/projects/${activeProjectId}/purchase-orders`);
+        purchaseOrdersGridApi.setGridOption('rowData', data);
+        cachedPurchaseOrders = data;
+    } catch (e) {
+        toast('Failed to load purchase orders', 'error');
     }
 }
 
@@ -288,6 +383,7 @@ async function saveModal() {
     try {
         await modalContext.save();
         closeModal();
+        await refreshProjectData();
         await refreshCurrentPanel();
         toast(modalContext.successMsg || 'Saved', 'success');
     } catch (e) {
@@ -388,6 +484,102 @@ function openCostCodeDialog(existing) {
     });
 }
 
+function openWorkOrderDialog(existing) {
+    if (!activeProjectId) { toast('Select a project first', 'error'); return; }
+    const e = existing || {};
+    const html = `
+        <div class="form-group">
+            <label>WO Number *</label>
+            <input type="text" id="f-wo-number" value="${esc(e.number || '')}">
+        </div>
+        <div class="form-group">
+            <label>Description</label>
+            <input type="text" id="f-wo-desc" value="${esc(e.description || '')}">
+        </div>
+        <div class="form-group">
+            <label>Status</label>
+            <select id="f-wo-status">
+                <option value="Active"${e.status === 'Active' || !e.status ? ' selected' : ''}>Active</option>
+                <option value="Complete"${e.status === 'Complete' ? ' selected' : ''}>Complete</option>
+                <option value="On Hold"${e.status === 'On Hold' ? ' selected' : ''}>On Hold</option>
+            </select>
+        </div>
+    `;
+    openModal(existing ? 'Edit Work Order' : 'New Work Order', html, {
+        successMsg: existing ? 'Work order updated' : 'Work order created',
+        save: async () => {
+            const body = {
+                number: document.getElementById('f-wo-number').value,
+                description: document.getElementById('f-wo-desc').value || null,
+                status: document.getElementById('f-wo-status').value,
+            };
+            if (!body.number) { toast('WO number is required', 'error'); throw new Error('validation'); }
+            if (existing) {
+                await apiRequest('PUT', `/api/work-orders/${existing.id}`, body);
+            } else {
+                await apiRequest('POST', `/api/projects/${activeProjectId}/work-orders`, body);
+            }
+        },
+    });
+}
+
+function openPurchaseOrderDialog(existing) {
+    if (!activeProjectId) { toast('Select a project first', 'error'); return; }
+    const e = existing || {};
+    const html = `
+        <div class="form-row">
+            <div class="form-group">
+                <label>PO Number *</label>
+                <input type="text" id="f-po-number" value="${esc(e.number || '')}">
+            </div>
+            <div class="form-group">
+                <label>PO Value</label>
+                <input type="number" id="f-po-value" step="0.01" value="${e.value || 0}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Supplier</label>
+            <input type="text" id="f-po-supplier" value="${esc(e.supplier_name || '')}">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Raised Date</label>
+                <input type="date" id="f-po-raised" value="${e.raised_date || ''}">
+            </div>
+            <div class="form-group">
+                <label>Active</label>
+                <select id="f-po-active">
+                    <option value="1"${e.is_active !== 0 ? ' selected' : ''}>Yes</option>
+                    <option value="0"${e.is_active === 0 ? ' selected' : ''}>No</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Notes</label>
+            <textarea id="f-po-notes" rows="2">${esc(e.notes || '')}</textarea>
+        </div>
+    `;
+    openModal(existing ? 'Edit Purchase Order' : 'New Purchase Order', html, {
+        successMsg: existing ? 'Purchase order updated' : 'Purchase order created',
+        save: async () => {
+            const body = {
+                number: document.getElementById('f-po-number').value,
+                supplier_name: document.getElementById('f-po-supplier').value || null,
+                value: parseFloat(document.getElementById('f-po-value').value) || 0,
+                raised_date: document.getElementById('f-po-raised').value || null,
+                is_active: parseInt(document.getElementById('f-po-active').value),
+                notes: document.getElementById('f-po-notes').value || null,
+            };
+            if (!body.number) { toast('PO number is required', 'error'); throw new Error('validation'); }
+            if (existing) {
+                await apiRequest('PUT', `/api/purchase-orders/${existing.id}`, body);
+            } else {
+                await apiRequest('POST', `/api/projects/${activeProjectId}/purchase-orders`, body);
+            }
+        },
+    });
+}
+
 function openResourceDialog(existing) {
     const e = existing || {};
     const html = `
@@ -438,6 +630,21 @@ function openDocketDialog(existing) {
     if (!activeProjectId) { toast('Select a project first', 'error'); return; }
     const e = existing || {};
     const today = new Date().toISOString().slice(0, 10);
+
+    const woOptions = cachedWorkOrders
+        .filter(w => w.status === 'Active')
+        .map(w => `<option value="${w.id}"${e.work_order_id === w.id ? ' selected' : ''}>${esc(w.number)} — ${esc(w.description || '')}</option>`)
+        .join('');
+
+    const ccOptions = cachedCostCodes
+        .map(c => `<option value="${c.id}"${e.cost_code_id === c.id ? ' selected' : ''}>${esc(c.code)} — ${esc(c.description || '')}</option>`)
+        .join('');
+
+    const poOptions = cachedPurchaseOrders
+        .filter(p => p.is_active)
+        .map(p => `<option value="${p.id}"${e.purchase_order_id === p.id ? ' selected' : ''}>${esc(p.number)} — ${esc(p.supplier_name || '')}</option>`)
+        .join('');
+
     const html = `
         <div class="form-row">
             <div class="form-group">
@@ -447,6 +654,29 @@ function openDocketDialog(existing) {
             <div class="form-group">
                 <label>Docket #</label>
                 <input type="text" id="f-dk-number" value="${esc(e.docket_number || '')}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Work Order</label>
+            <select id="f-dk-wo" onchange="onDocketWOChange()">
+                <option value="">— Select WO —</option>
+                ${woOptions}
+            </select>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Cost Code</label>
+                <select id="f-dk-cc">
+                    <option value="">— Select CC —</option>
+                    ${ccOptions}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Purchase Order</label>
+                <select id="f-dk-po">
+                    <option value="">— Select PO —</option>
+                    ${poOptions}
+                </select>
             </div>
         </div>
         <div class="form-group">
@@ -475,16 +705,6 @@ function openDocketDialog(existing) {
             <label>Amount</label>
             <input type="number" id="f-dk-amount" step="0.01" value="${e.amount || 0}">
         </div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>WO #</label>
-                <input type="text" id="f-dk-wo" value="${esc(e.wo_number || '')}">
-            </div>
-            <div class="form-group">
-                <label>PO #</label>
-                <input type="text" id="f-dk-po" value="${esc(e.po_number || '')}">
-            </div>
-        </div>
         <div class="form-group">
             <label>Notes</label>
             <textarea id="f-dk-notes" rows="2">${esc(e.notes || '')}</textarea>
@@ -496,14 +716,15 @@ function openDocketDialog(existing) {
             const body = {
                 date: document.getElementById('f-dk-date').value,
                 docket_number: document.getElementById('f-dk-number').value || null,
+                work_order_id: parseInt(document.getElementById('f-dk-wo').value) || null,
+                cost_code_id: parseInt(document.getElementById('f-dk-cc').value) || null,
+                purchase_order_id: parseInt(document.getElementById('f-dk-po').value) || null,
                 supplier_name: document.getElementById('f-dk-supplier').value || null,
                 description: document.getElementById('f-dk-desc').value || null,
                 qty: parseFloat(document.getElementById('f-dk-qty').value) || 0,
                 unit: document.getElementById('f-dk-unit').value || null,
                 rate: parseFloat(document.getElementById('f-dk-rate').value) || 0,
                 amount: parseFloat(document.getElementById('f-dk-amount').value) || 0,
-                wo_number: document.getElementById('f-dk-wo').value || null,
-                po_number: document.getElementById('f-dk-po').value || null,
                 notes: document.getElementById('f-dk-notes').value || null,
             };
             if (!body.date) { toast('Date is required', 'error'); throw new Error('validation'); }
@@ -515,6 +736,49 @@ function openDocketDialog(existing) {
             await loadSummary();
         },
     });
+
+    if (e.work_order_id) {
+        onDocketWOChange();
+    }
+}
+
+async function onDocketWOChange() {
+    const woId = parseInt(document.getElementById('f-dk-wo').value);
+    const ccSelect = document.getElementById('f-dk-cc');
+    const poSelect = document.getElementById('f-dk-po');
+    const currentCC = ccSelect.value;
+    const currentPO = poSelect.value;
+
+    if (!woId) {
+        ccSelect.innerHTML = '<option value="">— Select CC —</option>' +
+            cachedCostCodes.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.description || '')}</option>`).join('');
+        poSelect.innerHTML = '<option value="">— Select PO —</option>' +
+            cachedPurchaseOrders.filter(p => p.is_active).map(p => `<option value="${p.id}">${esc(p.number)} — ${esc(p.supplier_name || '')}</option>`).join('');
+        return;
+    }
+
+    try {
+        const [validCCs, validPOs] = await Promise.all([
+            apiFetch(`/api/work-orders/${woId}/cost-codes`),
+            apiFetch(`/api/purchase-orders?wo=${woId}`).catch(() => null),
+        ]);
+
+        if (validCCs && validCCs.length > 0) {
+            ccSelect.innerHTML = '<option value="">— Select CC —</option>' +
+                validCCs.map(c => `<option value="${c.id}"${c.id == currentCC ? ' selected' : ''}>${esc(c.code)} — ${esc(c.description || '')}</option>`).join('');
+            if (validCCs.length === 1) {
+                ccSelect.value = validCCs[0].id;
+            }
+        }
+
+        const woPOs = cachedPurchaseOrders.filter(p => p.is_active);
+        try {
+            const linkedPOs = await apiFetch(`/api/purchase-orders/${woId}/work-orders`).catch(() => []);
+        } catch (e) {}
+
+        poSelect.innerHTML = '<option value="">— Select PO —</option>' +
+            woPOs.map(p => `<option value="${p.id}"${p.id == currentPO ? ' selected' : ''}>${esc(p.number)} — ${esc(p.supplier_name || '')}</option>`).join('');
+    } catch (e) { /* fallback: keep full lists */ }
 }
 
 function calcDocketAmount() {
@@ -543,9 +807,10 @@ document.addEventListener('keydown', e => {
 document.addEventListener('DOMContentLoaded', () => {
     initDocketsGrid();
     initCostCodesGrid();
+    initWorkOrdersGrid();
+    initPurchaseOrdersGrid();
     initResourcesGrid();
     loadProjects();
 
-    // Show empty state initially
     showPanel('empty');
 });
