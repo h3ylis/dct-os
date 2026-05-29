@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DCT-OS — Daily Cost Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/dist/ag-grid-community.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css" rel="stylesheet">
+</head>
+<body>
+    <header id="header">
+        <div class="brand">
+            <span class="brand-name">DCT-OS</span>
+            <span class="brand-version">v{{ version }}</span>
+        </div>
+        <div id="active-project">
+            <span id="active-project-name">Select a project</span>
+        </div>
+        <nav id="header-nav">
+            <button class="nav-btn" onclick="showPanel('dockets')" id="tab-dockets">Dockets</button>
+            <button class="nav-btn" onclick="showPanel('cost-codes')" id="tab-cost-codes">Cost Codes</button>
+            <button class="nav-btn" onclick="showPanel('resources')" id="tab-resources">Resources</button>
+        </nav>
+    </header>
+
+    <div id="app">
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <h3>Projects</h3>
+                <button class="btn-sm btn-primary" onclick="openProjectDialog()">+ New</button>
+            </div>
+            <div class="sidebar-filter">
+                <input type="text" id="project-search" placeholder="Search projects..." oninput="filterProjects(this.value)">
+                <div class="filter-pills">
+                    <button class="pill active" data-status="Active" onclick="setProjectFilter('Active', this)">Active</button>
+                    <button class="pill" data-status="All" onclick="setProjectFilter('All', this)">All</button>
+                </div>
+            </div>
+            <div id="project-list"></div>
+        </aside>
+
+        <main id="main">
+            <div class="panel active" id="panel-dockets">
+                <div class="panel-toolbar">
+                    <h2>Dockets</h2>
+                    <div class="toolbar-actions">
+                        <button class="btn btn-primary" onclick="openDocketDialog()">+ Add Docket</button>
+                    </div>
+                </div>
+                <div class="stats-bar" id="stats-bar">
+                    <div class="stat"><span class="stat-label">Total Dockets</span><span class="stat-value" id="stat-count">0</span></div>
+                    <div class="stat"><span class="stat-label">Total Spend</span><span class="stat-value" id="stat-spend">$0</span></div>
+                    <div class="stat"><span class="stat-label">Suppliers</span><span class="stat-value" id="stat-suppliers">0</span></div>
+                </div>
+                <div id="dockets-grid" class="ag-theme-alpine grid-container"></div>
+            </div>
+
+            <div class="panel" id="panel-cost-codes">
+                <div class="panel-toolbar">
+                    <h2>Cost Codes</h2>
+                    <div class="toolbar-actions">
+                        <button class="btn btn-primary" onclick="openCostCodeDialog()">+ Add Cost Code</button>
+                    </div>
+                </div>
+                <div id="cost-codes-grid" class="ag-theme-alpine grid-container"></div>
+            </div>
+
+            <div class="panel" id="panel-resources">
+                <div class="panel-toolbar">
+                    <h2>Resources</h2>
+                    <div class="toolbar-actions">
+                        <button class="btn btn-primary" onclick="openResourceDialog()">+ Add Resource</button>
+                    </div>
+                </div>
+                <div id="resources-grid" class="ag-theme-alpine grid-container"></div>
+            </div>
+
+            <div class="panel" id="panel-empty">
+                <div class="empty-state">
+                    <h2>Select a project to get started</h2>
+                    <p>Choose a project from the sidebar, or create a new one.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="modal-overlay" class="modal-overlay" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 id="modal-title">Dialog</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" id="modal-save" onclick="saveModal()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    {% block scripts %}
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% endblock %}
+</body>
+</html>

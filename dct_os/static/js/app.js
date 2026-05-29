@@ -1,0 +1,551 @@
+// DCT-OS Frontend
+// Vanilla JS + AG-Grid Community — no framework
+
+const API = '';
+let activeProjectId = null;
+let activePanel = 'empty';
+let projectFilter = 'Active';
+let projectSearchTerm = '';
+
+// AG-Grid instances
+let docketsGridApi = null;
+let costCodesGridApi = null;
+let resourcesGridApi = null;
+
+// Current modal context
+let modalContext = null;
+
+// --- Helpers ---
+
+async function apiFetch(url) {
+    const resp = await fetch(API + url);
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+    }
+    return resp.json();
+}
+
+async function apiRequest(method, url, body) {
+    const resp = await fetch(API + url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        toast(err.error || `Error ${resp.status}`, 'error');
+        throw new Error(err.error || `HTTP ${resp.status}`);
+    }
+    return resp.json();
+}
+
+function currency(val) {
+    if (val == null || val === '') return '';
+    return '$' + Number(val).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function currencyFormatter(params) {
+    return currency(params.value);
+}
+
+function toast(msg, type) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast show' + (type ? ' ' + type : '');
+    clearTimeout(el._timeout);
+    el._timeout = setTimeout(() => { el.className = 'toast'; }, 3000);
+}
+
+// --- Projects ---
+
+let allProjects = [];
+
+async function loadProjects() {
+    try {
+        allProjects = await apiFetch('/api/projects?status=' + projectFilter);
+        renderProjectList();
+    } catch (e) {
+        toast('Failed to load projects', 'error');
+    }
+}
+
+function renderProjectList() {
+    const container = document.getElementById('project-list');
+    const term = projectSearchTerm.toLowerCase();
+    const filtered = allProjects.filter(p =>
+        !term || p.name.toLowerCase().includes(term) || (p.code || '').toLowerCase().includes(term)
+    );
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div style="padding:20px;text-align:center;color:#999;font-size:13px">No projects found</div>';
+        return;
+    }
+
+    container.innerHTML = filtered.map(p => `
+        <div class="project-item${p.id === activeProjectId ? ' active' : ''}"
+             onclick="selectProject(${p.id})">
+            <div class="project-name">${esc(p.name)}</div>
+            <div class="project-meta">
+                ${p.code ? '<span class="project-code">' + esc(p.code) + '</span>' : ''}
+                ${p.client ? '<span>' + esc(p.client) + '</span>' : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function filterProjects(term) {
+    projectSearchTerm = term;
+    renderProjectList();
+}
+
+function setProjectFilter(status, btn) {
+    projectFilter = status;
+    document.querySelectorAll('.filter-pills .pill').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    loadProjects();
+}
+
+async function selectProject(id) {
+    activeProjectId = id;
+    const project = allProjects.find(p => p.id === id);
+    if (project) {
+        document.getElementById('active-project-name').textContent = project.name;
+    }
+    renderProjectList();
+
+    if (activePanel === 'empty') {
+        showPanel('dockets');
+    } else {
+        await refreshCurrentPanel();
+    }
+}
+
+// --- Panels ---
+
+function showPanel(name) {
+    activePanel = name;
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+    const panel = document.getElementById('panel-' + name);
+    const tab = document.getElementById('tab-' + name);
+    if (panel) panel.classList.add('active');
+    if (tab) tab.classList.add('active');
+
+    refreshCurrentPanel();
+}
+
+async function refreshCurrentPanel() {
+    if (!activeProjectId && activePanel !== 'resources') return;
+
+    switch (activePanel) {
+        case 'dockets': await loadDockets(); await loadSummary(); break;
+        case 'cost-codes': await loadCostCodes(); break;
+        case 'resources': await loadResources(); break;
+    }
+}
+
+// --- Dockets Grid ---
+
+function initDocketsGrid() {
+    const columnDefs = [
+        { field: 'date', headerName: 'Date', width: 110, sort: 'desc' },
+        { field: 'docket_number', headerName: 'Docket #', width: 120 },
+        { field: 'supplier_name', headerName: 'Supplier', width: 180 },
+        { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
+        { field: 'cost_code', headerName: 'Cost Code', width: 110 },
+        { field: 'qty', headerName: 'Qty', width: 80, type: 'numericColumn' },
+        { field: 'unit', headerName: 'Unit', width: 70 },
+        { field: 'rate', headerName: 'Rate', width: 100, type: 'numericColumn', valueFormatter: currencyFormatter },
+        { field: 'amount', headerName: 'Amount', width: 120, type: 'numericColumn', valueFormatter: currencyFormatter },
+        { field: 'wo_number', headerName: 'WO', width: 100 },
+        { field: 'po_number', headerName: 'PO', width: 100 },
+    ];
+
+    const gridOptions = {
+        columnDefs,
+        rowData: [],
+        defaultColDef: { resizable: true, sortable: true, filter: true },
+        animateRows: true,
+        pagination: true,
+        paginationPageSize: 50,
+        suppressCellFocus: true,
+        onRowDoubleClicked: params => openDocketDialog(params.data),
+    };
+
+    const el = document.getElementById('dockets-grid');
+    docketsGridApi = agGrid.createGrid(el, gridOptions);
+}
+
+async function loadDockets() {
+    if (!activeProjectId || !docketsGridApi) return;
+    try {
+        const data = await apiFetch(`/api/projects/${activeProjectId}/dockets`);
+        docketsGridApi.setGridOption('rowData', data);
+    } catch (e) {
+        toast('Failed to load dockets', 'error');
+    }
+}
+
+async function loadSummary() {
+    if (!activeProjectId) return;
+    try {
+        const s = await apiFetch(`/api/projects/${activeProjectId}/summary`);
+        document.getElementById('stat-count').textContent = s.total_dockets;
+        document.getElementById('stat-spend').textContent = currency(s.total_spend);
+        document.getElementById('stat-suppliers').textContent = s.supplier_count;
+    } catch (e) { /* non-critical */ }
+}
+
+// --- Cost Codes Grid ---
+
+function initCostCodesGrid() {
+    const columnDefs = [
+        { field: 'code', headerName: 'Code', width: 120 },
+        { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
+        { field: 'budget_amount', headerName: 'Budget', width: 140, type: 'numericColumn', valueFormatter: currencyFormatter },
+    ];
+
+    const gridOptions = {
+        columnDefs,
+        rowData: [],
+        defaultColDef: { resizable: true, sortable: true, filter: true },
+        animateRows: true,
+        suppressCellFocus: true,
+        onRowDoubleClicked: params => openCostCodeDialog(params.data),
+    };
+
+    const el = document.getElementById('cost-codes-grid');
+    costCodesGridApi = agGrid.createGrid(el, gridOptions);
+}
+
+async function loadCostCodes() {
+    if (!activeProjectId || !costCodesGridApi) return;
+    try {
+        const data = await apiFetch(`/api/projects/${activeProjectId}/cost-codes`);
+        costCodesGridApi.setGridOption('rowData', data);
+    } catch (e) {
+        toast('Failed to load cost codes', 'error');
+    }
+}
+
+// --- Resources Grid ---
+
+function initResourcesGrid() {
+    const columnDefs = [
+        { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
+        { field: 'unit', headerName: 'Unit', width: 80 },
+        { field: 'supplier_name', headerName: 'Supplier', width: 200 },
+        { field: 'standard_rate', headerName: 'Rate', width: 120, type: 'numericColumn', valueFormatter: currencyFormatter },
+        { field: 'category', headerName: 'Category', width: 140 },
+    ];
+
+    const gridOptions = {
+        columnDefs,
+        rowData: [],
+        defaultColDef: { resizable: true, sortable: true, filter: true },
+        animateRows: true,
+        pagination: true,
+        paginationPageSize: 50,
+        suppressCellFocus: true,
+        onRowDoubleClicked: params => openResourceDialog(params.data),
+    };
+
+    const el = document.getElementById('resources-grid');
+    resourcesGridApi = agGrid.createGrid(el, gridOptions);
+}
+
+async function loadResources() {
+    if (!resourcesGridApi) return;
+    try {
+        const data = await apiFetch('/api/resources');
+        resourcesGridApi.setGridOption('rowData', data);
+    } catch (e) {
+        toast('Failed to load resources', 'error');
+    }
+}
+
+// --- Modals ---
+
+function openModal(title, html, context) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = html;
+    document.getElementById('modal-overlay').classList.add('open');
+    modalContext = context;
+    const first = document.querySelector('.modal-body input, .modal-body select');
+    if (first) first.focus();
+}
+
+function closeModal(event) {
+    if (event && event.target !== document.getElementById('modal-overlay')) return;
+    document.getElementById('modal-overlay').classList.remove('open');
+    modalContext = null;
+}
+
+async function saveModal() {
+    if (!modalContext) return;
+    try {
+        await modalContext.save();
+        closeModal();
+        await refreshCurrentPanel();
+        toast(modalContext.successMsg || 'Saved', 'success');
+    } catch (e) {
+        // error already toasted by apiRequest
+    }
+}
+
+function openProjectDialog(existing) {
+    const e = existing || {};
+    const html = `
+        <div class="form-group">
+            <label>Project Name *</label>
+            <input type="text" id="f-proj-name" value="${esc(e.name || '')}">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Code</label>
+                <input type="text" id="f-proj-code" value="${esc(e.code || '')}">
+            </div>
+            <div class="form-group">
+                <label>Status</label>
+                <select id="f-proj-status">
+                    <option value="Active"${e.status === 'Active' || !e.status ? ' selected' : ''}>Active</option>
+                    <option value="Complete"${e.status === 'Complete' ? ' selected' : ''}>Complete</option>
+                    <option value="On Hold"${e.status === 'On Hold' ? ' selected' : ''}>On Hold</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Client</label>
+            <input type="text" id="f-proj-client" value="${esc(e.client || '')}">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Start Date</label>
+                <input type="date" id="f-proj-start" value="${e.start_date || ''}">
+            </div>
+            <div class="form-group">
+                <label>End Date</label>
+                <input type="date" id="f-proj-end" value="${e.end_date || ''}">
+            </div>
+        </div>
+    `;
+    openModal(existing ? 'Edit Project' : 'New Project', html, {
+        successMsg: existing ? 'Project updated' : 'Project created',
+        save: async () => {
+            const body = {
+                name: document.getElementById('f-proj-name').value,
+                code: document.getElementById('f-proj-code').value || null,
+                client: document.getElementById('f-proj-client').value || null,
+                start_date: document.getElementById('f-proj-start').value || null,
+                end_date: document.getElementById('f-proj-end').value || null,
+                status: document.getElementById('f-proj-status').value,
+            };
+            if (!body.name) { toast('Name is required', 'error'); throw new Error('validation'); }
+            if (existing) {
+                await apiRequest('PUT', `/api/projects/${existing.id}`, body);
+            } else {
+                await apiRequest('POST', '/api/projects', body);
+            }
+            await loadProjects();
+        },
+    });
+}
+
+function openCostCodeDialog(existing) {
+    if (!activeProjectId) { toast('Select a project first', 'error'); return; }
+    const e = existing || {};
+    const html = `
+        <div class="form-group">
+            <label>Code *</label>
+            <input type="text" id="f-cc-code" value="${esc(e.code || '')}">
+        </div>
+        <div class="form-group">
+            <label>Description</label>
+            <input type="text" id="f-cc-desc" value="${esc(e.description || '')}">
+        </div>
+        <div class="form-group">
+            <label>Budget Amount</label>
+            <input type="number" id="f-cc-budget" step="0.01" value="${e.budget_amount || 0}">
+        </div>
+    `;
+    openModal(existing ? 'Edit Cost Code' : 'New Cost Code', html, {
+        successMsg: existing ? 'Cost code updated' : 'Cost code created',
+        save: async () => {
+            const body = {
+                code: document.getElementById('f-cc-code').value,
+                description: document.getElementById('f-cc-desc').value || null,
+                budget_amount: parseFloat(document.getElementById('f-cc-budget').value) || 0,
+            };
+            if (!body.code) { toast('Code is required', 'error'); throw new Error('validation'); }
+            if (existing) {
+                await apiRequest('PUT', `/api/cost-codes/${existing.id}`, body);
+            } else {
+                await apiRequest('POST', `/api/projects/${activeProjectId}/cost-codes`, body);
+            }
+        },
+    });
+}
+
+function openResourceDialog(existing) {
+    const e = existing || {};
+    const html = `
+        <div class="form-group">
+            <label>Description *</label>
+            <input type="text" id="f-res-desc" value="${esc(e.description || '')}">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Unit *</label>
+                <input type="text" id="f-res-unit" value="${esc(e.unit || '')}" placeholder="Hr, Day, Tonne, m3...">
+            </div>
+            <div class="form-group">
+                <label>Standard Rate</label>
+                <input type="number" id="f-res-rate" step="0.01" value="${e.standard_rate || 0}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Supplier</label>
+            <input type="text" id="f-res-supplier" value="${esc(e.supplier_name || '')}">
+        </div>
+        <div class="form-group">
+            <label>Category</label>
+            <input type="text" id="f-res-category" value="${esc(e.category || '')}" placeholder="Plant, Labour, Materials...">
+        </div>
+    `;
+    openModal(existing ? 'Edit Resource' : 'New Resource', html, {
+        successMsg: existing ? 'Resource updated' : 'Resource created',
+        save: async () => {
+            const body = {
+                description: document.getElementById('f-res-desc').value,
+                unit: document.getElementById('f-res-unit').value,
+                supplier_name: document.getElementById('f-res-supplier').value || null,
+                standard_rate: parseFloat(document.getElementById('f-res-rate').value) || 0,
+                category: document.getElementById('f-res-category').value || null,
+            };
+            if (!body.description || !body.unit) { toast('Description and unit are required', 'error'); throw new Error('validation'); }
+            if (existing) {
+                await apiRequest('PUT', `/api/resources/${existing.id}`, body);
+            } else {
+                await apiRequest('POST', '/api/resources', body);
+            }
+        },
+    });
+}
+
+function openDocketDialog(existing) {
+    if (!activeProjectId) { toast('Select a project first', 'error'); return; }
+    const e = existing || {};
+    const today = new Date().toISOString().slice(0, 10);
+    const html = `
+        <div class="form-row">
+            <div class="form-group">
+                <label>Date *</label>
+                <input type="date" id="f-dk-date" value="${e.date || today}">
+            </div>
+            <div class="form-group">
+                <label>Docket #</label>
+                <input type="text" id="f-dk-number" value="${esc(e.docket_number || '')}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Supplier</label>
+            <input type="text" id="f-dk-supplier" value="${esc(e.supplier_name || '')}">
+        </div>
+        <div class="form-group">
+            <label>Description</label>
+            <input type="text" id="f-dk-desc" value="${esc(e.description || '')}">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Qty</label>
+                <input type="number" id="f-dk-qty" step="0.01" value="${e.qty || 0}" oninput="calcDocketAmount()">
+            </div>
+            <div class="form-group">
+                <label>Unit</label>
+                <input type="text" id="f-dk-unit" value="${esc(e.unit || '')}" placeholder="Hr, Day, Tonne...">
+            </div>
+            <div class="form-group">
+                <label>Rate</label>
+                <input type="number" id="f-dk-rate" step="0.01" value="${e.rate || 0}" oninput="calcDocketAmount()">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Amount</label>
+            <input type="number" id="f-dk-amount" step="0.01" value="${e.amount || 0}">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>WO #</label>
+                <input type="text" id="f-dk-wo" value="${esc(e.wo_number || '')}">
+            </div>
+            <div class="form-group">
+                <label>PO #</label>
+                <input type="text" id="f-dk-po" value="${esc(e.po_number || '')}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Notes</label>
+            <textarea id="f-dk-notes" rows="2">${esc(e.notes || '')}</textarea>
+        </div>
+    `;
+    openModal(existing ? 'Edit Docket' : 'New Docket', html, {
+        successMsg: existing ? 'Docket updated' : 'Docket created',
+        save: async () => {
+            const body = {
+                date: document.getElementById('f-dk-date').value,
+                docket_number: document.getElementById('f-dk-number').value || null,
+                supplier_name: document.getElementById('f-dk-supplier').value || null,
+                description: document.getElementById('f-dk-desc').value || null,
+                qty: parseFloat(document.getElementById('f-dk-qty').value) || 0,
+                unit: document.getElementById('f-dk-unit').value || null,
+                rate: parseFloat(document.getElementById('f-dk-rate').value) || 0,
+                amount: parseFloat(document.getElementById('f-dk-amount').value) || 0,
+                wo_number: document.getElementById('f-dk-wo').value || null,
+                po_number: document.getElementById('f-dk-po').value || null,
+                notes: document.getElementById('f-dk-notes').value || null,
+            };
+            if (!body.date) { toast('Date is required', 'error'); throw new Error('validation'); }
+            if (existing) {
+                await apiRequest('PUT', `/api/dockets/${existing.id}`, body);
+            } else {
+                await apiRequest('POST', `/api/projects/${activeProjectId}/dockets`, body);
+            }
+            await loadSummary();
+        },
+    });
+}
+
+function calcDocketAmount() {
+    const qty = parseFloat(document.getElementById('f-dk-qty').value) || 0;
+    const rate = parseFloat(document.getElementById('f-dk-rate').value) || 0;
+    document.getElementById('f-dk-amount').value = (qty * rate).toFixed(2);
+}
+
+// --- Utilities ---
+
+function esc(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// --- Keyboard shortcuts ---
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+});
+
+// --- Init ---
+
+document.addEventListener('DOMContentLoaded', () => {
+    initDocketsGrid();
+    initCostCodesGrid();
+    initResourcesGrid();
+    loadProjects();
+
+    // Show empty state initially
+    showPanel('empty');
+});

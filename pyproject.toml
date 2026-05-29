@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dct-os"
+version = "0.1.0"
+description = "Daily cost tracking for civil engineering"
+readme = "README.md"
+license = "BUSL-1.1"
+requires-python = ">=3.11"
+authors = [{ name = "Andy Unger", email = "astral2@gmx.de" }]
+keywords = ["civil-engineering", "cost-tracking", "project-management"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Office/Business :: Financial :: Accounting",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "flask>=3.0",
+]
+
+[project.scripts]
+dct-os = "dct_os.app:main"
+
+[project.urls]
+Homepage = "https://github.com/h3ylis/dct-os"
+Issues = "https://github.com/h3ylis/dct-os/issues"
