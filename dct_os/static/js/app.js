@@ -22,6 +22,7 @@ let cachedWorkOrders = [];
 let cachedCostCodes = [];
 let cachedPurchaseOrders = [];
 let cachedResources = [];
+let cachedSuppliers = [];
 
 // Docket line management
 let docketLineCounter = 0;
@@ -137,15 +138,22 @@ async function selectProject(id) {
 async function refreshProjectData() {
     if (!activeProjectId) return;
     try {
-        [cachedWorkOrders, cachedCostCodes, cachedPurchaseOrders] = await Promise.all([
+        [cachedWorkOrders, cachedCostCodes, cachedPurchaseOrders, cachedSuppliers] = await Promise.all([
             apiFetch(`/api/projects/${activeProjectId}/work-orders`),
             apiFetch(`/api/projects/${activeProjectId}/cost-codes`),
             apiFetch(`/api/projects/${activeProjectId}/purchase-orders`),
+            apiFetch(`/api/projects/${activeProjectId}/suppliers`),
         ]);
     } catch (e) { /* non-critical */ }
     if (cachedResources.length === 0) {
         try { cachedResources = await apiFetch('/api/resources'); } catch (e) {}
     }
+}
+
+function supplierDatalistHtml() {
+    return '<datalist id="supplier-options">' +
+        cachedSuppliers.map(s => '<option value="' + esc(s) + '">').join('') +
+        '</datalist>';
 }
 
 // --- Panels ---
@@ -172,6 +180,7 @@ async function refreshCurrentPanel() {
         case 'work-orders': await loadWorkOrders(); break;
         case 'purchase-orders': await loadPurchaseOrders(); break;
         case 'resources': await loadResources(); break;
+        case 'reports': loadReportFilters(); break;
     }
 }
 
@@ -551,7 +560,8 @@ function openPurchaseOrderDialog(existing) {
         </div>
         <div class="form-group">
             <label>Supplier</label>
-            <input type="text" id="f-po-supplier" value="${esc(e.supplier_name || '')}">
+            <input type="text" id="f-po-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options">
+            ${supplierDatalistHtml()}
         </div>
         <div class="form-row">
             <div class="form-group">
@@ -611,7 +621,8 @@ function openResourceDialog(existing) {
         </div>
         <div class="form-group">
             <label>Supplier</label>
-            <input type="text" id="f-res-supplier" value="${esc(e.supplier_name || '')}">
+            <input type="text" id="f-res-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options">
+            ${supplierDatalistHtml()}
         </div>
         <div class="form-group">
             <label>Category</label>
@@ -681,11 +692,12 @@ function openDocketDialog(existing) {
                 <div class="form-row">
                     <div class="form-group">
                         <label>Supplier</label>
-                        <input type="text" id="f-dk-supplier" value="${esc(e.supplier_name || '')}">
+                        <input type="text" id="f-dk-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options">
+                        ${supplierDatalistHtml()}
                     </div>
                     <div class="form-group">
                         <label>Purchase Order</label>
-                        <select id="f-dk-po">
+                        <select id="f-dk-po" onchange="onDocketPOChange()">
                             <option value="">-- Select PO --</option>
                             ${poOptions}
                         </select>
@@ -895,6 +907,121 @@ function togglePdfPane() {
     if (toggle) {
         toggle.innerHTML = entry.classList.contains('pdf-open') ? '&#9654;' : '&#9664;';
     }
+}
+
+// --- PO auto-fill supplier ---
+
+function onDocketPOChange() {
+    const poId = parseInt(document.getElementById('f-dk-po').value);
+    const supplierEl = document.getElementById('f-dk-supplier');
+    if (!poId || !supplierEl) return;
+    // Only auto-fill if supplier is empty
+    if (supplierEl.value) return;
+    const po = cachedPurchaseOrders.find(p => p.id === poId);
+    if (po && po.supplier_name) {
+        supplierEl.value = po.supplier_name;
+    }
+}
+
+// --- Docket Summary Report ---
+
+function loadReportFilters() {
+    const sel = document.getElementById('rpt-supplier');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">-- Select Supplier --</option>' +
+        cachedSuppliers.map(s => '<option value="' + esc(s) + '"' +
+            (s === current ? ' selected' : '') + '>' + esc(s) + '</option>').join('');
+}
+
+async function runDocketSummary() {
+    if (!activeProjectId) { toast('Select a project first', 'error'); return; }
+    const supplier = document.getElementById('rpt-supplier').value;
+    if (!supplier) { toast('Select a supplier', 'error'); return; }
+
+    const dateFrom = document.getElementById('rpt-date-from').value;
+    const dateTo = document.getElementById('rpt-date-to').value;
+
+    let url = '/api/projects/' + activeProjectId + '/docket-summary?supplier=' + encodeURIComponent(supplier);
+    if (dateFrom) url += '&date_from=' + dateFrom;
+    if (dateTo) url += '&date_to=' + dateTo;
+
+    try {
+        const data = await apiFetch(url);
+        renderDocketSummary(data);
+        document.getElementById('rpt-csv-btn').style.display = '';
+    } catch (e) {
+        toast('Failed to generate report', 'error');
+    }
+}
+
+function renderDocketSummary(data) {
+    const output = document.getElementById('report-output');
+    if (!data.groups || data.groups.length === 0) {
+        output.innerHTML = '<div class="report-empty">No docket data found for this supplier and date range.</div>';
+        document.getElementById('rpt-csv-btn').style.display = 'none';
+        return;
+    }
+
+    let dateRange = '';
+    if (data.date_from && data.date_to) dateRange = data.date_from + ' to ' + data.date_to;
+    else if (data.date_from) dateRange = 'From ' + data.date_from;
+    else if (data.date_to) dateRange = 'Up to ' + data.date_to;
+    else dateRange = 'All dates';
+
+    let html = '<div class="report-header">';
+    html += '<h3>' + esc(data.supplier) + '</h3>';
+    html += '<div class="report-meta">' + dateRange + '</div>';
+    html += '</div>';
+
+    html += '<table class="report-table">';
+    html += '<thead><tr>';
+    html += '<th>Resource</th><th>Unit</th>';
+    html += '<th class="col-right">Qty</th>';
+    html += '<th class="col-right">Avg Rate</th>';
+    html += '<th class="col-right">Subtotal</th>';
+    html += '<th class="col-right">Dockets</th>';
+    html += '</tr></thead><tbody>';
+
+    data.groups.forEach(function(group) {
+        html += '<tr class="category-row"><td colspan="6">' + esc(group.category) + '</td></tr>';
+        group.items.forEach(function(item) {
+            html += '<tr>';
+            html += '<td>' + esc(item.resource_desc) + '</td>';
+            html += '<td>' + esc(item.unit || '') + '</td>';
+            html += '<td class="col-right">' + (item.total_qty != null ? Number(item.total_qty).toFixed(2) : '') + '</td>';
+            html += '<td class="col-right">' + currency(item.avg_rate) + '</td>';
+            html += '<td class="col-right">' + currency(item.subtotal) + '</td>';
+            html += '<td class="col-right">' + item.docket_count + '</td>';
+            html += '</tr>';
+        });
+        html += '<tr class="subtotal-row">';
+        html += '<td colspan="4" style="text-align:right">' + esc(group.category) + ' Subtotal</td>';
+        html += '<td class="col-right">' + currency(group.category_total) + '</td>';
+        html += '<td></td></tr>';
+    });
+
+    html += '<tr class="grand-total-row">';
+    html += '<td colspan="4" style="text-align:right">Grand Total</td>';
+    html += '<td class="col-right">' + currency(data.grand_total) + '</td>';
+    html += '<td></td></tr>';
+
+    html += '</tbody></table>';
+    output.innerHTML = html;
+}
+
+function exportSummaryCSV() {
+    if (!activeProjectId) return;
+    const supplier = document.getElementById('rpt-supplier').value;
+    if (!supplier) return;
+
+    let url = '/api/projects/' + activeProjectId + '/docket-summary/csv?supplier=' + encodeURIComponent(supplier);
+    const dateFrom = document.getElementById('rpt-date-from').value;
+    const dateTo = document.getElementById('rpt-date-to').value;
+    if (dateFrom) url += '&date_from=' + dateFrom;
+    if (dateTo) url += '&date_to=' + dateTo;
+
+    window.open(url, '_blank');
 }
 
 // --- Utilities ---

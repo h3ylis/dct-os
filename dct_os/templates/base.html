@@ -24,6 +24,7 @@
             <button class="nav-btn" onclick="showPanel('work-orders')" id="tab-work-orders">Work Orders</button>
             <button class="nav-btn" onclick="showPanel('purchase-orders')" id="tab-purchase-orders">Purchase Orders</button>
             <button class="nav-btn" onclick="showPanel('resources')" id="tab-resources">Resources</button>
+            <button class="nav-btn" onclick="showPanel('reports')" id="tab-reports">Reports</button>
         </nav>
     </header>
 
@@ -97,6 +98,31 @@
                     </div>
                 </div>
                 <div id="resources-grid" class="ag-theme-alpine grid-container"></div>
+            </div>
+
+            <div class="panel" id="panel-reports">
+                <div class="panel-toolbar">
+                    <h2>Docket Summary Report</h2>
+                </div>
+                <div class="report-filter-bar" id="report-filter-bar">
+                    <div class="filter-field">
+                        <label>Supplier</label>
+                        <select id="rpt-supplier"><option value="">-- Select Supplier --</option></select>
+                    </div>
+                    <div class="filter-field">
+                        <label>From</label>
+                        <input type="date" id="rpt-date-from">
+                    </div>
+                    <div class="filter-field">
+                        <label>To</label>
+                        <input type="date" id="rpt-date-to">
+                    </div>
+                    <div class="filter-actions">
+                        <button class="btn btn-primary" onclick="runDocketSummary()">Generate</button>
+                        <button class="btn" id="rpt-csv-btn" onclick="exportSummaryCSV()" style="display:none">Export CSV</button>
+                    </div>
+                </div>
+                <div id="report-output" class="report-output"></div>
             </div>
 
             <div class="panel" id="panel-empty">

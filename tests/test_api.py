@@ -266,6 +266,65 @@ def test_cost_report(client):
     assert earthworks["budget_amount"] == 420000.00
 
 
+def test_project_suppliers(client):
+    resp = client.get("/api/projects/1/suppliers")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert isinstance(data, list)
+    assert len(data) > 0
+    # Should be sorted case-insensitively
+    assert data == sorted(data, key=str.lower)
+    # Redgum Civil Pty Ltd should be in the list (from seed dockets + POs)
+    assert "Redgum Civil Pty Ltd" in data
+
+
+def test_docket_summary(client):
+    resp = client.get("/api/projects/1/docket-summary?supplier=Redgum+Civil+Pty+Ltd")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["supplier"] == "Redgum Civil Pty Ltd"
+    assert "groups" in data
+    assert len(data["groups"]) > 0
+    assert data["grand_total"] > 0
+    # Each group has items with expected fields
+    first_group = data["groups"][0]
+    assert "category" in first_group
+    assert "items" in first_group
+    assert "category_total" in first_group
+    first_item = first_group["items"][0]
+    assert "resource_desc" in first_item
+    assert "total_qty" in first_item
+    assert "subtotal" in first_item
+
+
+def test_docket_summary_date_filter(client):
+    resp = client.get("/api/projects/1/docket-summary?supplier=Redgum+Civil+Pty+Ltd&date_from=2025-02-01&date_to=2025-02-28")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["date_from"] == "2025-02-01"
+    assert data["date_to"] == "2025-02-28"
+    # Should return a subset (or all if everything falls in range)
+    assert data["grand_total"] >= 0
+
+
+def test_docket_summary_requires_supplier(client):
+    resp = client.get("/api/projects/1/docket-summary")
+    assert resp.status_code == 400
+    data = json.loads(resp.data)
+    assert "supplier" in data["error"].lower()
+
+
+def test_docket_summary_csv(client):
+    resp = client.get("/api/projects/1/docket-summary/csv?supplier=Redgum+Civil+Pty+Ltd")
+    assert resp.status_code == 200
+    assert "text/csv" in resp.content_type
+    text = resp.data.decode("utf-8")
+    lines = text.strip().split("\n")
+    assert len(lines) >= 2  # header + at least one data row
+    assert "Category" in lines[0]
+    assert "Subtotal" in lines[0]
+
+
 def test_404_on_missing(client):
     resp = client.get("/api/projects/999")
     assert resp.status_code == 404

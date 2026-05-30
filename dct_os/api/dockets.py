@@ -1,4 +1,7 @@
-from flask import Blueprint, jsonify, request
+import csv
+import io
+
+from flask import Blueprint, Response, jsonify, request
 
 from dct_os.db import get_db
 
@@ -238,3 +241,146 @@ def cost_report(project_id):
         (project_id,),
     ).fetchall()
     return jsonify([dict(r) for r in rows])
+
+
+@bp.route("/projects/<int:project_id>/suppliers", methods=["GET"])
+def list_project_suppliers(project_id):
+    """Distinct supplier names from POs, docket headers, and resources."""
+    db = get_db()
+    rows = db.execute(
+        """SELECT DISTINCT name FROM (
+               SELECT supplier_name AS name
+               FROM purchase_orders WHERE project_id = ? AND supplier_name IS NOT NULL
+               UNION
+               SELECT supplier_name AS name
+               FROM docket_headers WHERE project_id = ? AND supplier_name IS NOT NULL
+               UNION
+               SELECT supplier_name AS name
+               FROM resources WHERE supplier_name IS NOT NULL
+           ) sub
+           ORDER BY name COLLATE NOCASE""",
+        (project_id, project_id),
+    ).fetchall()
+    return jsonify([r["name"] for r in rows])
+
+
+@bp.route("/projects/<int:project_id>/docket-summary", methods=["GET"])
+def docket_summary(project_id):
+    """Docket summary grouped by category/resource for a supplier + date range."""
+    db = get_db()
+    supplier = request.args.get("supplier")
+    if not supplier:
+        return jsonify({"error": "supplier parameter is required"}), 400
+
+    date_from = request.args.get("date_from")
+    date_to = request.args.get("date_to")
+
+    params = [project_id, supplier]
+    where = "dh.project_id = ? AND dh.supplier_name = ?"
+    if date_from:
+        where += " AND dh.date >= ?"
+        params.append(date_from)
+    if date_to:
+        where += " AND dh.date <= ?"
+        params.append(date_to)
+
+    rows = db.execute(
+        f"""SELECT
+                COALESCE(r.category, 'Uncategorised') AS category,
+                COALESCE(r.description, dl.description, 'Unknown') AS resource_desc,
+                dl.unit,
+                SUM(dl.qty) AS total_qty,
+                CASE WHEN SUM(dl.qty) > 0
+                     THEN SUM(dl.amount) / SUM(dl.qty)
+                     ELSE 0 END AS avg_rate,
+                SUM(dl.amount) AS subtotal,
+                COUNT(DISTINCT dh.id) AS docket_count
+            FROM docket_lines dl
+            JOIN docket_headers dh ON dl.docket_id = dh.id
+            LEFT JOIN resources r ON dl.resource_id = r.id
+            WHERE {where}
+            GROUP BY category, resource_desc, dl.unit
+            ORDER BY category, resource_desc""",
+        params,
+    ).fetchall()
+
+    # Build grouped structure
+    groups = {}
+    grand_total = 0
+    for r in rows:
+        d = dict(r)
+        cat = d["category"]
+        if cat not in groups:
+            groups[cat] = {"category": cat, "items": [], "category_total": 0}
+        groups[cat]["items"].append(d)
+        groups[cat]["category_total"] += d["subtotal"] or 0
+        grand_total += d["subtotal"] or 0
+
+    return jsonify({
+        "supplier": supplier,
+        "date_from": date_from,
+        "date_to": date_to,
+        "groups": list(groups.values()),
+        "grand_total": grand_total,
+    })
+
+
+@bp.route("/projects/<int:project_id>/docket-summary/csv", methods=["GET"])
+def docket_summary_csv(project_id):
+    """Export docket summary as CSV."""
+    db = get_db()
+    supplier = request.args.get("supplier")
+    if not supplier:
+        return jsonify({"error": "supplier parameter is required"}), 400
+
+    date_from = request.args.get("date_from")
+    date_to = request.args.get("date_to")
+
+    params = [project_id, supplier]
+    where = "dh.project_id = ? AND dh.supplier_name = ?"
+    if date_from:
+        where += " AND dh.date >= ?"
+        params.append(date_from)
+    if date_to:
+        where += " AND dh.date <= ?"
+        params.append(date_to)
+
+    rows = db.execute(
+        f"""SELECT
+                COALESCE(r.category, 'Uncategorised') AS category,
+                COALESCE(r.description, dl.description, 'Unknown') AS resource_desc,
+                dl.unit,
+                SUM(dl.qty) AS total_qty,
+                CASE WHEN SUM(dl.qty) > 0
+                     THEN SUM(dl.amount) / SUM(dl.qty)
+                     ELSE 0 END AS avg_rate,
+                SUM(dl.amount) AS subtotal,
+                COUNT(DISTINCT dh.id) AS docket_count
+            FROM docket_lines dl
+            JOIN docket_headers dh ON dl.docket_id = dh.id
+            LEFT JOIN resources r ON dl.resource_id = r.id
+            WHERE {where}
+            GROUP BY category, resource_desc, dl.unit
+            ORDER BY category, resource_desc""",
+        params,
+    ).fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Category", "Resource", "Unit", "Total Qty",
+        "Avg Rate", "Subtotal", "Docket Count",
+    ])
+    for r in rows:
+        writer.writerow([
+            r["category"], r["resource_desc"], r["unit"],
+            r["total_qty"], round(r["avg_rate"], 2),
+            round(r["subtotal"], 2), r["docket_count"],
+        ])
+
+    filename = f"docket_summary_{supplier.replace(' ', '_')}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
