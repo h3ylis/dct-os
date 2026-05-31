@@ -191,6 +191,31 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.project-edit-btn {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-muted);
+    padding: 0 3px;
+    line-height: 1;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.project-edit-btn:hover {
+    color: var(--primary);
+    background: var(--primary-light);
+}
+
+.project-item:hover .project-edit-btn {
+    display: inline-flex;
 }
 
 .project-item .project-meta {
@@ -359,15 +384,15 @@ body {
     border-radius: 8px;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
     width: 480px;
-    max-width: 90vw;
-    max-height: 85vh;
+    max-width: 94vw;
+    max-height: 92vh;
     display: flex;
     flex-direction: column;
     transition: width 0.3s ease;
 }
 
 .modal.modal-wide {
-    width: 860px;
+    width: min(1200px, 94vw);
 }
 
 .modal-header {
@@ -395,6 +420,12 @@ body {
 .modal-body {
     padding: 20px;
     overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+.modal-wide .modal-body {
+    overflow-y: hidden;
 }
 
 .modal-footer {
@@ -479,11 +510,15 @@ body {
     display: flex;
     position: relative;
     min-height: 0;
+    height: calc(92vh - 130px);
 }
 
 .docket-form {
     flex: 1;
     min-width: 0;
+    overflow-y: auto;
+    padding-left: 28px;
+    padding-right: 4px;
 }
 
 /* PDF Pane — hidden by default, slides open from left */
@@ -493,38 +528,112 @@ body {
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    transition: width 0.3s ease;
+    transition: width 0.25s ease;
     flex-shrink: 0;
 }
 
 .docket-entry.pdf-open .pdf-pane {
-    width: 320px;
-    min-width: 320px;
+    width: 480px;
+    min-width: 480px;
+    border-right: 2px solid var(--border);
+    box-shadow: 2px 0 6px rgba(0, 0, 0, 0.06);
 }
 
-.pdf-pane-header {
+/* PDF Toolbar — single compact row */
+.pdf-toolbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
+    gap: 4px;
+    padding: 5px 6px;
     border-bottom: 1px solid var(--border);
-    font-size: 12px;
-    font-weight: 600;
+    background: var(--bg);
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
-.pdf-pane-close {
-    background: none;
-    border: none;
-    font-size: 18px;
+.pdf-tb-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
     cursor: pointer;
+    font-size: 14px;
+    padding: 3px 7px;
+    line-height: 1;
     color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.pdf-tb-btn:hover {
+    background: var(--primary-light);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+.pdf-tb-close {
+    margin-left: auto;
+    font-size: 16px;
+}
+
+.pdf-file-select {
+    flex: 1;
+    min-width: 0;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    background: var(--surface);
+    cursor: pointer;
+}
+
+.pdf-file-select:focus { border-color: var(--primary); }
+
+.pdf-tb-nav {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.pdf-tb-counter {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 28px;
+    text-align: center;
+}
+
+/* PDF pane toggle — tab on the left edge of the form */
+.pdf-form-toggle {
+    position: absolute;
+    left: -1px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 2;
+    border: 1px solid var(--border);
+    border-left: none;
+    border-radius: 0 4px 4px 0;
+    background: var(--bg);
+    transition: left 0.25s ease;
+}
+
+.pdf-form-toggle:hover {
+    background: var(--primary-light);
+}
+
+.pdf-form-toggle-icon {
+    font-size: 15px;
     line-height: 1;
 }
 
-.pdf-pane-body {
-    flex: 1;
-    overflow: auto;
+.docket-entry.pdf-open .pdf-form-toggle {
+    display: none;
 }
 
 .pdf-placeholder {
@@ -540,33 +649,31 @@ body {
     padding: 20px;
 }
 
-.pdf-toggle {
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 22px;
-    height: 44px;
-    border: 1px solid var(--border);
-    border-left: none;
-    border-radius: 0 var(--radius) var(--radius) 0;
-    background: var(--bg);
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 11px;
+/* Duplicate file warning banner in PDF pane */
+.pdf-dupe-banner {
     display: flex;
     align-items: center;
-    justify-content: center;
-    z-index: 2;
-    transition: left 0.3s ease;
+    gap: 6px;
+    padding: 6px 10px;
+    background: #fef3c7;
+    border-bottom: 1px solid #fcd34d;
+    font-size: 12px;
+    color: #92400e;
+    flex-shrink: 0;
 }
 
-.pdf-toggle:hover {
-    background: var(--border);
+.pdf-dupe-banner .dupe-icon {
+    font-size: 14px;
+    flex-shrink: 0;
 }
 
-.docket-entry.pdf-open .pdf-toggle {
-    left: 320px;
+.pdf-dupe-banner .dupe-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.pdf-dupe-banner .dupe-ref {
+    font-weight: 600;
 }
 
 /* --- Docket Lines Table --- */
@@ -595,7 +702,7 @@ body {
 .docket-lines-scroll {
     overflow-x: auto;
     overflow-y: auto;
-    max-height: 260px;
+    max-height: 360px;
 }
 
 .docket-lines-table {
@@ -689,6 +796,43 @@ body {
 .docket-grand-total {
     font-size: 16px;
     color: var(--primary);
+}
+
+/* --- Docket Fingerprint --- */
+
+.docket-fingerprint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 8px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.docket-fingerprint .fp-label {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.docket-fingerprint .fp-hash {
+    font-family: monospace;
+    font-size: 10px;
+    word-break: break-all;
+    flex: 1;
+    min-width: 0;
+    user-select: all;
+}
+
+.docket-fingerprint .fp-file {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
 }
 
 /* --- Report Panel --- */
@@ -891,105 +1035,149 @@ body {
 
 .docket-chip.selected .chip-amount { color: var(--primary); }
 
-/* --- Folder Browse (PDF Pane) --- */
-
-.pdf-file-list {
-    border-bottom: 1px solid var(--border);
-    max-height: 180px;
-    overflow-y: auto;
+.docket-chip.claimed {
+    opacity: 0.55;
+    border-style: dashed;
 }
 
-.pdf-file-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 12px;
-    font-size: 11px;
-    cursor: pointer;
-    border-bottom: 1px solid #f0f0f0;
-    transition: background 0.1s;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.pdf-file-item:hover { background: var(--bg); }
-.pdf-file-item.active { background: var(--primary-light); font-weight: 500; }
-
-.pdf-file-item .file-status {
-    flex-shrink: 0;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-}
-
-.pdf-file-item .file-status.done {
-    background: var(--success);
+.docket-chip .chip-claimed-tag {
+    font-size: 9px;
+    background: var(--warning);
     color: white;
-}
-
-.pdf-file-item .file-status.pending {
-    background: var(--border);
-    color: var(--text-muted);
-}
-
-.pdf-file-name { overflow: hidden; text-overflow: ellipsis; }
-
-.pdf-browse-bar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border-bottom: 1px solid var(--border);
-}
-
-.pdf-browse-bar input[type="file"] { display: none; }
-
-.pdf-nav-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 4px 12px;
-    border-bottom: 1px solid var(--border);
-    font-size: 11px;
-    color: var(--text-muted);
-}
-
-.pdf-nav-bar button {
-    background: none;
-    border: 1px solid var(--border);
+    padding: 1px 5px;
     border-radius: 3px;
-    padding: 2px 8px;
-    cursor: pointer;
-    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
 }
 
-.pdf-nav-bar button:hover { background: var(--bg); }
+.docket-picker-controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
 
 .pdf-viewer {
     flex: 1;
     overflow: auto;
     display: flex;
-    align-items: flex-start;
+    align-items: stretch;
     justify-content: center;
-    padding: 8px;
+    padding: 0;
     background: #e8e8e8;
+    min-height: 0;
 }
 
 .pdf-viewer img {
     max-width: 100%;
     height: auto;
-    border-radius: 2px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    object-fit: contain;
+    padding: 8px;
 }
 
 .pdf-viewer iframe,
-.pdf-viewer embed {
+.pdf-viewer embed,
+.pdf-viewer object {
     width: 100%;
     height: 100%;
+    min-height: 100%;
     border: none;
+}
+
+/* --- Claim Bar --- */
+
+.rpt-claim-bar {
+    padding: 10px 20px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    position: sticky;
+    bottom: 0;
+}
+
+.claim-bar-inner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.claim-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.claim-ref-input {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+    outline: none;
+    font-family: inherit;
+    min-width: 180px;
+}
+
+.claim-ref-input:focus { border-color: var(--primary); }
+
+/* --- Report Category Toggle --- */
+
+.report-options {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.report-option-toggle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+/* --- Docket Claimed Badge (in modal) --- */
+
+/* --- Grid Copy Button --- */
+
+.btn-grid-copy {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-muted);
+    padding: 1px 5px;
+    line-height: 1;
+}
+
+.btn-grid-copy:hover {
+    background: var(--primary-light);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+.docket-claimed-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    margin-top: 4px;
+    margin-bottom: 8px;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: var(--radius);
+    font-size: 12px;
+    color: #166534;
+}
+
+.docket-claimed-badge .claimed-icon {
+    font-weight: 700;
+}
+
+.docket-claimed-badge .claimed-date {
+    color: #4ade80;
+    font-size: 11px;
 }

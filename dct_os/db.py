@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from pathlib import Path
 
@@ -41,4 +42,5 @@ def init_app(app):
     app.teardown_appcontext(close_db)
     with app.app_context():
         init_db()
-        seed_db()
+        if not os.environ.get("DCT_NO_SEED", "").lower() in ("1", "true", "yes"):
+            seed_db()

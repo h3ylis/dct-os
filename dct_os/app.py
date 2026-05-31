@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
@@ -30,9 +31,15 @@ def create_app(test_config=None):
     app.register_blueprint(api)
     database.init_app(app)
 
+    cache_bust = str(int(time.time()))
+
+    @app.context_processor
+    def inject_globals():
+        return {"version": __version__, "v": cache_bust}
+
     @app.route("/")
     def index():
-        return render_template("index.html", version=__version__)
+        return render_template("index.html")
 
     return app
 

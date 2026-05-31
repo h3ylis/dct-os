@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS docket_headers (
     notes               TEXT,
     source_hash         TEXT,
     source_filename     TEXT,
+    claimed_reference   TEXT,
+    claimed_at          TEXT,
     created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );

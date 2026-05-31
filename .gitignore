@@ -46,5 +46,11 @@ Desktop.ini
 *.db-wal
 *.db-shm
 
+# Flask instance folder
+instance/
+
+# Claude Code
+.claude/
+
 # Distribution
 *.spec

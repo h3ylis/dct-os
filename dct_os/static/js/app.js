@@ -106,7 +106,10 @@ function renderProjectList() {
     container.innerHTML = filtered.map(p => `
         <div class="project-item${p.id === activeProjectId ? ' active' : ''}"
              onclick="selectProject(${p.id})">
-            <div class="project-name">${esc(p.name)}</div>
+            <div class="project-name">
+                ${esc(p.name)}
+                <button class="project-edit-btn" onclick="event.stopPropagation(); openProjectDialog(allProjects.find(pp => pp.id === ${p.id}))" title="Edit project">&#9998;</button>
+            </div>
             <div class="project-meta">
                 ${p.code ? '<span class="project-code">' + esc(p.code) + '</span>' : ''}
                 ${p.client ? '<span>' + esc(p.client) + '</span>' : ''}
@@ -207,6 +210,14 @@ function initDocketsGrid() {
         { field: 'cost_codes', headerName: 'CCs', width: 130,
             valueFormatter: p => p.value || '' },
         { field: 'total_amount', headerName: 'Amount', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter },
+        { field: 'claimed_reference', headerName: 'Claimed', width: 120,
+            valueFormatter: p => p.value || '' },
+        { headerName: '', width: 50, sortable: false, filter: false, resizable: false,
+            valueGetter: () => '⧈',
+            cellStyle: { cursor: 'pointer', textAlign: 'center', fontSize: '16px', color: '#666' },
+            onCellClicked: params => copyDocket(params.data),
+            tooltipValueGetter: () => 'Copy docket',
+        },
     ];
 
     const gridOptions = {
@@ -214,10 +225,14 @@ function initDocketsGrid() {
         rowData: [],
         defaultColDef: { resizable: true, sortable: true, filter: true },
         animateRows: true,
-        pagination: true,
-        paginationPageSize: 50,
         suppressCellFocus: true,
         onRowDoubleClicked: params => openDocketDialog(params.data),
+        getRowStyle: params => {
+            if (params.data && params.data.claimed_reference) {
+                return { background: '#f0fdf4' };
+            }
+            return null;
+        },
     };
 
     const el = document.getElementById('dockets-grid');
@@ -365,8 +380,6 @@ function initResourcesGrid() {
         rowData: [],
         defaultColDef: { resizable: true, sortable: true, filter: true },
         animateRows: true,
-        pagination: true,
-        paginationPageSize: 50,
         suppressCellFocus: true,
         onRowDoubleClicked: params => openResourceDialog(params.data),
     };
@@ -680,30 +693,30 @@ function openDocketDialog(existing) {
     const html = `
         <div class="docket-entry" id="docket-entry">
             <div class="pdf-pane" id="docket-pdf-pane">
-                <div class="pdf-pane-header">
-                    <span>Source Documents</span>
-                    <button class="pdf-pane-close" onclick="togglePdfPane()">&times;</button>
-                </div>
-                <div class="pdf-browse-bar">
-                    <button class="btn-sm" onclick="document.getElementById('folder-input').click()">Browse Folder</button>
-                    <input type="file" id="folder-input" webkitdirectory multiple accept=".pdf,.jpg,.jpeg,.png" onchange="onFolderSelected(this)">
-                </div>
-                <div class="pdf-file-list" id="pdf-file-list"></div>
-                <div class="pdf-nav-bar" id="pdf-nav-bar" style="display:none">
-                    <button onclick="browsePrev()">&laquo; Prev</button>
-                    <span id="pdf-nav-info">0 / 0</span>
-                    <button onclick="browseNext()">Next &raquo;</button>
+                <div class="pdf-toolbar">
+                    <button class="pdf-tb-btn" onclick="document.getElementById('folder-input').click()" title="Browse folder">&#128193;</button>
+                    <input type="file" id="folder-input" webkitdirectory multiple accept=".pdf,.jpg,.jpeg,.png" onchange="onFolderSelected(this)" style="display:none">
+                    <select id="pdf-file-select" class="pdf-file-select" onchange="selectBrowseFile(parseInt(this.value))" title="Select file">
+                        <option value="-1">No files loaded</option>
+                    </select>
+                    <div class="pdf-tb-nav" id="pdf-tb-nav" style="display:none">
+                        <button class="pdf-tb-btn" onclick="browsePrev()" title="Previous">&#9664;</button>
+                        <span class="pdf-tb-counter" id="pdf-nav-info">0/0</span>
+                        <button class="pdf-tb-btn" onclick="browseNext()" title="Next">&#9654;</button>
+                    </div>
+                    <button class="pdf-tb-btn pdf-tb-close" onclick="togglePdfPane()" title="Close">&times;</button>
                 </div>
                 <div class="pdf-viewer" id="pdf-viewer">
                     <div class="pdf-placeholder">
-                        <div style="font-size:32px;margin-bottom:12px">&#128196;</div>
-                        <div>Browse a folder to view source documents</div>
-                        <div style="font-size:11px;margin-top:4px;color:var(--text-muted)">PDF, JPG, PNG supported</div>
+                        <div style="font-size:36px;margin-bottom:8px;opacity:0.4">&#128196;</div>
+                        <div>Click &#128193; to browse a folder</div>
                     </div>
                 </div>
             </div>
-            <button class="pdf-toggle" id="pdf-toggle" onclick="togglePdfPane()" title="Toggle PDF viewer">&#9664;</button>
             <div class="docket-form">
+                <div class="pdf-form-toggle" id="pdf-toggle" onclick="togglePdfPane()" title="Source documents">
+                    <span class="pdf-form-toggle-icon" id="pdf-toggle-icon">&#128196;</span>
+                </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label>Date *</label>
@@ -728,6 +741,7 @@ function openDocketDialog(existing) {
                         </select>
                     </div>
                 </div>
+                ${e.claimed_reference ? '<div class="docket-claimed-badge"><span class="claimed-icon">&#10003;</span> Claimed: <strong>' + esc(e.claimed_reference) + '</strong>' + (e.claimed_at ? ' <span class="claimed-date">(' + e.claimed_at.slice(0, 10) + ')</span>' : '') + '</div>' : ''}
 
                 <div class="docket-lines-section">
                     <div class="docket-lines-header">
@@ -763,12 +777,21 @@ function openDocketDialog(existing) {
                     <label>Notes</label>
                     <textarea id="f-dk-notes" rows="2">${esc(e.notes || '')}</textarea>
                 </div>
+
+                <div class="docket-fingerprint" id="docket-fingerprint"${e.source_hash ? '' : ' style="display:none"'}>
+                    <span class="fp-label">Fingerprint:</span>
+                    <span class="fp-hash" id="fp-hash">${esc(e.source_hash || '')}</span>
+                    <span class="fp-file" id="fp-file">${esc(e.source_filename || '')}</span>
+                </div>
             </div>
         </div>
     `;
 
-    openModal(existing ? 'Edit Docket' : 'New Docket', html, {
-        successMsg: existing ? 'Docket updated' : 'Docket created',
+    const isEdit = existing && existing.id;
+    const modalTitle = isEdit ? 'Edit Docket' : (existing ? 'New Docket (Copy)' : 'New Docket');
+
+    openModal(modalTitle, html, {
+        successMsg: isEdit ? 'Docket updated' : 'Docket created',
         save: async () => {
             const body = {
                 date: document.getElementById('f-dk-date').value,
@@ -782,7 +805,7 @@ function openDocketDialog(existing) {
             };
             if (!body.date) { toast('Date is required', 'error'); throw new Error('validation'); }
             if (body.lines.length === 0) { toast('Add at least one line', 'error'); throw new Error('validation'); }
-            if (existing) {
+            if (isEdit) {
                 await apiRequest('PUT', `/api/dockets/${existing.id}`, body);
             } else {
                 await apiRequest('POST', `/api/projects/${activeProjectId}/dockets`, body);
@@ -809,10 +832,10 @@ function openDocketDialog(existing) {
         if (browseFileIndex >= 0) selectBrowseFile(browseFileIndex);
         // Auto-open PDF pane
         const entry = document.getElementById('docket-entry');
-        const toggle = document.getElementById('pdf-toggle');
         if (entry && !entry.classList.contains('pdf-open')) {
             entry.classList.add('pdf-open');
-            if (toggle) toggle.innerHTML = '&#9654;';
+            const icon = document.getElementById('pdf-toggle-icon');
+            if (icon) icon.style.opacity = '0.4';
         }
     }
 }
@@ -945,11 +968,42 @@ function collectDocketLines() {
 
 function togglePdfPane() {
     const entry = document.getElementById('docket-entry');
-    const toggle = document.getElementById('pdf-toggle');
     if (!entry) return;
     entry.classList.toggle('pdf-open');
-    if (toggle) {
-        toggle.innerHTML = entry.classList.contains('pdf-open') ? '&#9654;' : '&#9664;';
+    const icon = document.getElementById('pdf-toggle-icon');
+    if (icon) {
+        icon.style.opacity = entry.classList.contains('pdf-open') ? '0.4' : '1';
+    }
+}
+
+// --- Copy Docket ---
+
+async function copyDocket(rowData) {
+    if (!activeProjectId) { toast('Select a project first', 'error'); return; }
+    try {
+        const source = await apiFetch('/api/dockets/' + rowData.id);
+        const today = new Date().toISOString().slice(0, 10);
+        const copy = {
+            date: today,
+            docket_number: '',
+            supplier_name: source.supplier_name,
+            purchase_order_id: source.purchase_order_id,
+            notes: '',
+            lines: (source.lines || []).map(ln => ({
+                work_order_id: ln.work_order_id,
+                cost_code_id: ln.cost_code_id,
+                resource_id: ln.resource_id,
+                description: ln.description,
+                qty: ln.qty,
+                unit: ln.unit,
+                rate: ln.rate,
+                amount: ln.amount,
+            })),
+        };
+        openDocketDialog(copy);
+        toast('Copied from ' + (source.docket_number || '#' + source.id), 'success');
+    } catch (e) {
+        toast('Failed to copy docket', 'error');
     }
 }
 
@@ -1003,9 +1057,12 @@ async function onReportSupplierChange() {
         return;
     }
 
+    const hideClaimed = document.getElementById('rpt-hide-claimed');
+    const unclaimedParam = hideClaimed && hideClaimed.checked ? '&unclaimed=1' : '';
+
     try {
         reportDockets = await apiFetch(
-            '/api/projects/' + activeProjectId + '/dockets/by-supplier?supplier=' + encodeURIComponent(supplier)
+            '/api/projects/' + activeProjectId + '/dockets/by-supplier?supplier=' + encodeURIComponent(supplier) + unclaimedParam
         );
         renderDocketPicker();
     } catch (e) {
@@ -1020,13 +1077,18 @@ function renderDocketPicker() {
         listEl.innerHTML = '<div style="padding:8px;color:#999;font-size:12px">No dockets for this supplier</div>';
         return;
     }
-    listEl.innerHTML = reportDockets.map(d =>
-        '<label class="docket-chip" data-id="' + d.id + '" onclick="toggleDocketChip(this)">' +
-        '<input type="checkbox" value="' + d.id + '" style="display:none">' +
-        '<span>' + esc(d.docket_number || d.date) + '</span>' +
-        '<span class="chip-amount">' + currency(d.total_amount) + '</span>' +
-        '</label>'
-    ).join('');
+    listEl.innerHTML = reportDockets.map(d => {
+        const claimed = d.claimed_reference ? ' claimed' : '';
+        const tag = d.claimed_reference
+            ? ' <span class="chip-claimed-tag">' + esc(d.claimed_reference) + '</span>'
+            : '';
+        return '<label class="docket-chip' + claimed + '" data-id="' + d.id + '" onclick="toggleDocketChip(this)">' +
+            '<input type="checkbox" value="' + d.id + '" style="display:none">' +
+            '<span>' + esc(d.docket_number || d.date) + '</span>' +
+            '<span class="chip-amount">' + currency(d.total_amount) + '</span>' +
+            tag +
+            '</label>';
+    }).join('');
 }
 
 function toggleDocketChip(label) {
@@ -1088,11 +1150,17 @@ async function runDocketSummary() {
     }
 }
 
+let lastSummaryData = null;
+
 function renderDocketSummary(data) {
+    lastSummaryData = data;
     const output = document.getElementById('report-output');
     if (!data.groups || data.groups.length === 0) {
         output.innerHTML = '<div class="report-empty">No docket data found for this selection.</div>';
         document.getElementById('rpt-csv-btn').style.display = 'none';
+        // Hide claim bar
+        const claimBar = document.getElementById('rpt-claim-bar');
+        if (claimBar) claimBar.style.display = 'none';
         return;
     }
 
@@ -1109,13 +1177,23 @@ function renderDocketSummary(data) {
         subtitle = 'All dates';
     }
 
+    const showCats = document.getElementById('rpt-show-categories');
+    const categorised = showCats ? showCats.checked : true;
+
     let html = '<div class="report-header">';
     html += '<h3>' + esc(data.supplier) + '</h3>';
     html += '<div class="report-meta">' + subtitle + '</div>';
     html += '</div>';
 
+    html += '<div class="report-options">';
+    html += '<label class="report-option-toggle">';
+    html += '<input type="checkbox" id="rpt-show-categories" onchange="rerenderSummary()"' + (categorised ? ' checked' : '') + '>';
+    html += ' Show categories</label>';
+    html += '</div>';
+
     html += '<table class="report-table">';
     html += '<thead><tr>';
+    if (categorised) html += '<th>Category</th>';
     html += '<th>Resource</th><th>Unit</th>';
     html += '<th class="col-right">Qty</th>';
     html += '<th class="col-right">Avg Rate</th>';
@@ -1123,9 +1201,40 @@ function renderDocketSummary(data) {
     html += '<th class="col-right">Dockets</th>';
     html += '</tr></thead><tbody>';
 
-    data.groups.forEach(function(group) {
-        html += '<tr class="category-row"><td colspan="6">' + esc(group.category) + '</td></tr>';
-        group.items.forEach(function(item) {
+    if (categorised) {
+        data.groups.forEach(function(group) {
+            html += '<tr class="category-row"><td colspan="7">' + esc(group.category) + '</td></tr>';
+            group.items.forEach(function(item) {
+                html += '<tr>';
+                html += '<td></td>';
+                html += '<td>' + esc(item.resource_desc) + '</td>';
+                html += '<td>' + esc(item.unit || '') + '</td>';
+                html += '<td class="col-right">' + (item.total_qty != null ? Number(item.total_qty).toFixed(2) : '') + '</td>';
+                html += '<td class="col-right">' + currency(item.avg_rate) + '</td>';
+                html += '<td class="col-right">' + currency(item.subtotal) + '</td>';
+                html += '<td class="col-right">' + item.docket_count + '</td>';
+                html += '</tr>';
+            });
+            html += '<tr class="subtotal-row">';
+            html += '<td colspan="5" style="text-align:right">' + esc(group.category) + ' Subtotal</td>';
+            html += '<td class="col-right">' + currency(group.category_total) + '</td>';
+            html += '<td></td></tr>';
+        });
+
+        html += '<tr class="grand-total-row">';
+        html += '<td colspan="5" style="text-align:right">Grand Total</td>';
+        html += '<td class="col-right">' + currency(data.grand_total) + '</td>';
+        html += '<td></td></tr>';
+    } else {
+        // Flat list: all items without category grouping
+        var allItems = [];
+        data.groups.forEach(function(group) {
+            group.items.forEach(function(item) { allItems.push(item); });
+        });
+        allItems.sort(function(a, b) {
+            return (a.resource_desc || '').localeCompare(b.resource_desc || '');
+        });
+        allItems.forEach(function(item) {
             html += '<tr>';
             html += '<td>' + esc(item.resource_desc) + '</td>';
             html += '<td>' + esc(item.unit || '') + '</td>';
@@ -1135,25 +1244,65 @@ function renderDocketSummary(data) {
             html += '<td class="col-right">' + item.docket_count + '</td>';
             html += '</tr>';
         });
-        html += '<tr class="subtotal-row">';
-        html += '<td colspan="4" style="text-align:right">' + esc(group.category) + ' Subtotal</td>';
-        html += '<td class="col-right">' + currency(group.category_total) + '</td>';
-        html += '<td></td></tr>';
-    });
 
-    html += '<tr class="grand-total-row">';
-    html += '<td colspan="4" style="text-align:right">Grand Total</td>';
-    html += '<td class="col-right">' + currency(data.grand_total) + '</td>';
-    html += '<td></td></tr>';
+        html += '<tr class="grand-total-row">';
+        html += '<td colspan="4" style="text-align:right">Grand Total</td>';
+        html += '<td class="col-right">' + currency(data.grand_total) + '</td>';
+        html += '<td></td></tr>';
+    }
 
     html += '</tbody></table>';
     output.innerHTML = html;
+
+    // Show claim bar when in docket mode
+    const claimBar = document.getElementById('rpt-claim-bar');
+    if (claimBar) {
+        claimBar.style.display = reportMode === 'dockets' ? '' : 'none';
+    }
+}
+
+function rerenderSummary() {
+    if (lastSummaryData) renderDocketSummary(lastSummaryData);
 }
 
 function exportSummaryCSV() {
     if (!activeProjectId) return;
     const url = _buildSummaryUrl('/api/projects/' + activeProjectId + '/docket-summary/csv');
     if (url) window.open(url, '_blank');
+}
+
+// --- Claim / Unclaim Dockets ---
+
+async function claimSelectedDockets() {
+    if (!activeProjectId) return;
+    const ids = getSelectedDocketIds().map(Number);
+    if (ids.length === 0) { toast('Select dockets to claim', 'error'); return; }
+    const ref = document.getElementById('rpt-claim-ref').value.trim();
+    if (!ref) { toast('Enter a claim reference', 'error'); return; }
+
+    try {
+        await apiRequest('POST', '/api/projects/' + activeProjectId + '/dockets/claim', {
+            docket_ids: ids,
+            reference: ref,
+        });
+        toast(ids.length + ' docket(s) claimed as ' + ref, 'success');
+        document.getElementById('rpt-claim-ref').value = '';
+        await onReportSupplierChange();
+    } catch (e) { /* toasted */ }
+}
+
+async function unclaimSelectedDockets() {
+    if (!activeProjectId) return;
+    const ids = getSelectedDocketIds().map(Number);
+    if (ids.length === 0) { toast('Select dockets to unclaim', 'error'); return; }
+
+    try {
+        await apiRequest('POST', '/api/projects/' + activeProjectId + '/dockets/unclaim', {
+            docket_ids: ids,
+        });
+        toast(ids.length + ' docket(s) unclaimed', 'success');
+        await onReportSupplierChange();
+    } catch (e) { /* toasted */ }
 }
 
 // --- Folder Browse (Source Document Entry) ---
@@ -1194,10 +1343,12 @@ async function onFolderSelected(input) {
                 '/api/projects/' + activeProjectId + '/check-hashes',
                 { hashes: allHashes }
             );
-            const existingSet = new Set(resp.existing.map(e => e.source_hash));
+            const existingMap = {};
+            resp.existing.forEach(e => { existingMap[e.source_hash] = e; });
             for (const [name, hash] of Object.entries(browseHashes)) {
-                if (existingSet.has(hash)) {
-                    browseHashes[name] = { hash, entered: true };
+                const match = existingMap[hash];
+                if (match) {
+                    browseHashes[name] = { hash, entered: true, match };
                 } else {
                     browseHashes[name] = { hash, entered: false };
                 }
@@ -1219,18 +1370,18 @@ async function onFolderSelected(input) {
 }
 
 function renderBrowseFileList() {
-    const listEl = document.getElementById('pdf-file-list');
-    if (!listEl) return;
-    listEl.innerHTML = browseFiles.map((f, i) => {
+    const sel = document.getElementById('pdf-file-select');
+    if (!sel) return;
+    sel.innerHTML = browseFiles.map((f, i) => {
         const info = browseHashes[f.name] || {};
-        const statusClass = info.entered ? 'done' : 'pending';
-        const statusIcon = info.entered ? '&#10003;' : '&#9679;';
-        const activeClass = i === browseFileIndex ? ' active' : '';
-        return '<div class="pdf-file-item' + activeClass + '" onclick="selectBrowseFile(' + i + ')">' +
-            '<span class="file-status ' + statusClass + '">' + statusIcon + '</span>' +
-            '<span class="pdf-file-name" title="' + esc(f.name) + '">' + esc(f.name) + '</span>' +
-            '</div>';
+        const prefix = info.entered ? '✓ ' : '○ ';
+        return '<option value="' + i + '"' + (i === browseFileIndex ? ' selected' : '') + '>' +
+            prefix + esc(f.name) + '</option>';
     }).join('');
+
+    // Show nav controls
+    const nav = document.getElementById('pdf-tb-nav');
+    if (nav) nav.style.display = browseFiles.length > 0 ? '' : 'none';
 }
 
 function selectBrowseFile(index) {
@@ -1238,16 +1389,50 @@ function selectBrowseFile(index) {
     browseFileIndex = index;
     const file = browseFiles[index];
 
-    // Show nav bar
-    const navBar = document.getElementById('pdf-nav-bar');
-    if (navBar) navBar.style.display = '';
+    // Update dropdown selection
+    const sel = document.getElementById('pdf-file-select');
+    if (sel) sel.selectedIndex = index;
 
-    // Update file list highlight
+    // Update counter
+    const navEl = document.getElementById('pdf-nav-info');
+    if (navEl) navEl.textContent = (index + 1) + '/' + browseFiles.length;
+
+    // Re-render dropdown to update status prefixes
     renderBrowseFileList();
 
-    // Update nav bar
-    const navEl = document.getElementById('pdf-nav-info');
-    if (navEl) navEl.textContent = (index + 1) + ' / ' + browseFiles.length;
+    // Show/hide duplicate warning banner
+    const info = browseHashes[file.name] || {};
+    let banner = document.getElementById('pdf-dupe-banner');
+    if (info.entered && info.match) {
+        const m = info.match;
+        const ref = m.docket_number ? ('Docket #' + esc(m.docket_number)) : ('Docket ID ' + m.id);
+        const dateStr = m.date ? (' on ' + m.date) : '';
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'pdf-dupe-banner';
+            banner.className = 'pdf-dupe-banner';
+            const toolbar = document.querySelector('.pdf-toolbar');
+            if (toolbar) toolbar.parentNode.insertBefore(banner, toolbar.nextSibling);
+        }
+        banner.innerHTML = '<span class="dupe-icon">&#9888;</span>' +
+            '<span class="dupe-text">Already entered as <span class="dupe-ref">' +
+            ref + '</span>' + dateStr + '</span>';
+    } else if (banner) {
+        banner.remove();
+    }
+
+    // Update fingerprint display
+    const fpEl = document.getElementById('docket-fingerprint');
+    const fpHash = document.getElementById('fp-hash');
+    const fpFile = document.getElementById('fp-file');
+    if (fpEl && fpHash) {
+        const hash = info.hash || (typeof info === 'string' ? info : null);
+        if (hash) {
+            fpHash.textContent = hash;
+            if (fpFile) fpFile.textContent = file.name;
+            fpEl.style.display = '';
+        }
+    }
 
     // Display file in viewer
     const viewer = document.getElementById('pdf-viewer');
@@ -1255,14 +1440,10 @@ function selectBrowseFile(index) {
 
     const url = URL.createObjectURL(file);
     if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
-        viewer.innerHTML = '<embed src="' + url + '" type="application/pdf">';
+        viewer.innerHTML = '<object data="' + url + '" type="application/pdf" style="width:100%;height:100%"><p>PDF cannot be displayed. <a href="' + url + '" target="_blank">Open in new tab</a></p></object>';
     } else {
         viewer.innerHTML = '<img src="' + url + '" alt="' + esc(file.name) + '">';
     }
-
-    // Auto-fill the source filename in the docket form if modal is open
-    const fnEl = document.getElementById('f-dk-source-filename');
-    if (fnEl) fnEl.value = file.name;
 }
 
 function browsePrev() {

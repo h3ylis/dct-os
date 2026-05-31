@@ -390,18 +390,74 @@ def list_dockets_by_supplier(project_id):
     if not supplier:
         return jsonify({"error": "supplier parameter is required"}), 400
 
+    where = "dh.project_id = ? AND dh.supplier_name = ?"
+    params = [project_id, supplier]
+
+    if request.args.get("unclaimed") == "1":
+        where += " AND (dh.claimed_reference IS NULL OR dh.claimed_reference = '')"
+
     rows = db.execute(
-        """SELECT dh.id, dh.date, dh.docket_number,
+        f"""SELECT dh.id, dh.date, dh.docket_number,
+                  dh.claimed_reference, dh.claimed_at,
                   COALESCE(SUM(dl.amount), 0) AS total_amount,
                   COUNT(dl.id) AS line_count
            FROM docket_headers dh
            LEFT JOIN docket_lines dl ON dl.docket_id = dh.id
-           WHERE dh.project_id = ? AND dh.supplier_name = ?
+           WHERE {where}
            GROUP BY dh.id
            ORDER BY dh.date DESC, dh.docket_number""",
-        (project_id, supplier),
+        params,
     ).fetchall()
     return jsonify([dict(r) for r in rows])
+
+
+@bp.route("/projects/<int:project_id>/dockets/claim", methods=["POST"])
+def claim_dockets(project_id):
+    """Mark selected dockets as claimed with a reference string."""
+    db = get_db()
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    docket_ids = data.get("docket_ids", [])
+    reference = data.get("reference", "").strip()
+    if not docket_ids:
+        return jsonify({"error": "docket_ids is required"}), 400
+    if not reference:
+        return jsonify({"error": "reference is required"}), 400
+
+    placeholders = ",".join("?" * len(docket_ids))
+    db.execute(
+        f"""UPDATE docket_headers
+            SET claimed_reference = ?, claimed_at = datetime('now'),
+                updated_at = datetime('now')
+            WHERE id IN ({placeholders}) AND project_id = ?""",
+        [reference] + list(docket_ids) + [project_id],
+    )
+    db.commit()
+    return jsonify({"claimed": len(docket_ids), "reference": reference})
+
+
+@bp.route("/projects/<int:project_id>/dockets/unclaim", methods=["POST"])
+def unclaim_dockets(project_id):
+    """Clear claim reference from selected dockets."""
+    db = get_db()
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    docket_ids = data.get("docket_ids", [])
+    if not docket_ids:
+        return jsonify({"error": "docket_ids is required"}), 400
+
+    placeholders = ",".join("?" * len(docket_ids))
+    db.execute(
+        f"""UPDATE docket_headers
+            SET claimed_reference = NULL, claimed_at = NULL,
+                updated_at = datetime('now')
+            WHERE id IN ({placeholders}) AND project_id = ?""",
+        list(docket_ids) + [project_id],
+    )
+    db.commit()
+    return jsonify({"unclaimed": len(docket_ids)})
 
 
 @bp.route("/projects/<int:project_id>/check-hashes", methods=["POST"])

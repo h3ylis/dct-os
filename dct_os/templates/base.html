@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DCT-OS — Daily Cost Tracker</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v={{ v }}">
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/dist/ag-grid-community.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css" rel="stylesheet">
@@ -132,11 +132,22 @@
                 <div class="rpt-docket-picker" id="rpt-docket-picker" style="display:none">
                     <div class="docket-picker-header">
                         <span class="docket-picker-title">Select dockets</span>
-                        <label class="docket-picker-toggle"><input type="checkbox" id="rpt-select-all" onchange="toggleAllDockets(this.checked)"> Select All</label>
+                        <div class="docket-picker-controls">
+                            <label class="docket-picker-toggle"><input type="checkbox" id="rpt-hide-claimed" onchange="onReportSupplierChange()" checked> Hide claimed</label>
+                            <label class="docket-picker-toggle"><input type="checkbox" id="rpt-select-all" onchange="toggleAllDockets(this.checked)"> Select All</label>
+                        </div>
                     </div>
                     <div class="docket-picker-list" id="rpt-docket-list"></div>
                 </div>
                 <div id="report-output" class="report-output"></div>
+                <div id="rpt-claim-bar" class="rpt-claim-bar" style="display:none">
+                    <div class="claim-bar-inner">
+                        <label class="claim-label">Mark selected dockets as claimed:</label>
+                        <input type="text" id="rpt-claim-ref" placeholder="Reference (e.g. INV-001)" class="claim-ref-input">
+                        <button class="btn btn-primary btn-sm" onclick="claimSelectedDockets()">Mark Claimed</button>
+                        <button class="btn btn-sm" onclick="unclaimSelectedDockets()">Unclaim</button>
+                    </div>
+                </div>
             </div>
 
             <div class="panel" id="panel-empty">
@@ -165,7 +176,7 @@
     <div id="toast" class="toast"></div>
 
     {% block scripts %}
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ v }}"></script>
     {% endblock %}
 </body>
 </html>
