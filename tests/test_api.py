@@ -325,6 +325,87 @@ def test_docket_summary_csv(client):
     assert "Subtotal" in lines[0]
 
 
+def test_docket_summary_by_ids(client):
+    """Summary filtered by specific docket IDs instead of date range."""
+    resp = client.get("/api/projects/1/docket-summary?supplier=Redgum+Civil+Pty+Ltd&docket_ids=1,2,3")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["docket_ids"] == "1,2,3"
+    assert data["grand_total"] > 0
+    # Should be less than unfiltered total
+    all_resp = client.get("/api/projects/1/docket-summary?supplier=Redgum+Civil+Pty+Ltd")
+    all_data = json.loads(all_resp.data)
+    assert data["grand_total"] <= all_data["grand_total"]
+
+
+def test_dockets_by_supplier(client):
+    """List docket headers for a specific supplier."""
+    resp = client.get("/api/projects/1/dockets/by-supplier?supplier=Redgum+Civil+Pty+Ltd")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert isinstance(data, list)
+    assert len(data) > 0
+    first = data[0]
+    assert "id" in first
+    assert "date" in first
+    assert "docket_number" in first
+    assert "total_amount" in first
+
+
+def test_dockets_by_supplier_requires_supplier(client):
+    resp = client.get("/api/projects/1/dockets/by-supplier")
+    assert resp.status_code == 400
+
+
+def test_check_hashes(client):
+    """Create a docket with source_hash, then verify check-hashes finds it."""
+    # Create a docket with a source hash
+    docket = {
+        "date": "2025-06-01",
+        "supplier_name": "Test Supplier",
+        "docket_number": "HASH-001",
+        "source_hash": "abc123def456",
+        "source_filename": "test_docket.pdf",
+        "lines": [{"description": "Test", "qty": 1, "rate": 100}],
+    }
+    resp = client.post("/api/projects/1/dockets",
+                       json=docket, content_type="application/json")
+    assert resp.status_code == 201
+    created = json.loads(resp.data)
+    assert created["source_hash"] == "abc123def456"
+    assert created["source_filename"] == "test_docket.pdf"
+
+    # Check that the hash is found
+    check = client.post("/api/projects/1/check-hashes",
+                        json={"hashes": ["abc123def456", "unknown_hash"]},
+                        content_type="application/json")
+    assert check.status_code == 200
+    check_data = json.loads(check.data)
+    existing_hashes = [e["source_hash"] for e in check_data["existing"]]
+    assert "abc123def456" in existing_hashes
+    assert "unknown_hash" not in existing_hashes
+
+
+def test_check_duplicate(client):
+    """Check duplicate detection by supplier+number+date."""
+    resp = client.get(
+        "/api/projects/1/check-duplicate?"
+        "supplier=Redgum+Civil+Pty+Ltd&docket_number=RGC-0001&date=2025-02-03"
+    )
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["duplicate"] is True
+    assert data["existing_id"] is not None
+
+    # Non-existing combo
+    resp2 = client.get(
+        "/api/projects/1/check-duplicate?"
+        "supplier=Nobody&docket_number=NOPE-999&date=2099-01-01"
+    )
+    data2 = json.loads(resp2.data)
+    assert data2["duplicate"] is False
+
+
 def test_404_on_missing(client):
     resp = client.get("/api/projects/999")
     assert resp.status_code == 404

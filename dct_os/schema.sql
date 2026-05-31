@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS docket_headers (
     date                TEXT    NOT NULL,
     docket_number       TEXT,
     notes               TEXT,
+    source_hash         TEXT,
+    source_filename     TEXT,
     created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -103,3 +105,4 @@ CREATE INDEX IF NOT EXISTS idx_docket_headers_date ON docket_headers(date);
 CREATE INDEX IF NOT EXISTS idx_docket_lines_docket ON docket_lines(docket_id);
 CREATE INDEX IF NOT EXISTS idx_docket_lines_work_order ON docket_lines(work_order_id);
 CREATE INDEX IF NOT EXISTS idx_docket_lines_cost_code ON docket_lines(cost_code_id);
+CREATE INDEX IF NOT EXISTS idx_docket_headers_source_hash ON docket_headers(source_hash);

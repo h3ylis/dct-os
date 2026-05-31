@@ -101,8 +101,8 @@ def create_docket(project_id):
     cur = db.execute(
         """INSERT INTO docket_headers
            (project_id, purchase_order_id, supplier_name, date,
-            docket_number, notes)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+            docket_number, notes, source_hash, source_filename)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             project_id,
             data.get("purchase_order_id"),
@@ -110,6 +110,8 @@ def create_docket(project_id):
             data["date"],
             data.get("docket_number"),
             data.get("notes"),
+            data.get("source_hash"),
+            data.get("source_filename"),
         ),
     )
     header_id = cur.lastrowid
@@ -154,7 +156,7 @@ def update_docket(docket_id):
 
     header_fields = [
         "purchase_order_id", "supplier_name", "date",
-        "docket_number", "notes",
+        "docket_number", "notes", "source_hash", "source_filename",
     ]
     updates = {f: data[f] for f in header_fields if f in data}
     if updates:
@@ -264,27 +266,39 @@ def list_project_suppliers(project_id):
     return jsonify([r["name"] for r in rows])
 
 
-@bp.route("/projects/<int:project_id>/docket-summary", methods=["GET"])
-def docket_summary(project_id):
-    """Docket summary grouped by category/resource for a supplier + date range."""
-    db = get_db()
-    supplier = request.args.get("supplier")
+def _build_summary_filter(project_id, args):
+    """Build WHERE clause for summary queries (shared by JSON + CSV)."""
+    supplier = args.get("supplier")
     if not supplier:
-        return jsonify({"error": "supplier parameter is required"}), 400
+        return None, None, "supplier parameter is required"
 
-    date_from = request.args.get("date_from")
-    date_to = request.args.get("date_to")
+    date_from = args.get("date_from")
+    date_to = args.get("date_to")
+    docket_ids_raw = args.get("docket_ids")
 
     params = [project_id, supplier]
     where = "dh.project_id = ? AND dh.supplier_name = ?"
-    if date_from:
-        where += " AND dh.date >= ?"
-        params.append(date_from)
-    if date_to:
-        where += " AND dh.date <= ?"
-        params.append(date_to)
 
-    rows = db.execute(
+    if docket_ids_raw:
+        ids = [int(x) for x in docket_ids_raw.split(",") if x.strip().isdigit()]
+        if ids:
+            placeholders = ",".join("?" * len(ids))
+            where += f" AND dh.id IN ({placeholders})"
+            params.extend(ids)
+    else:
+        if date_from:
+            where += " AND dh.date >= ?"
+            params.append(date_from)
+        if date_to:
+            where += " AND dh.date <= ?"
+            params.append(date_to)
+
+    return where, params, None
+
+
+def _run_summary_query(db, where, params):
+    """Execute the summary GROUP BY query."""
+    return db.execute(
         f"""SELECT
                 COALESCE(r.category, 'Uncategorised') AS category,
                 COALESCE(r.description, dl.description, 'Unknown') AS resource_desc,
@@ -304,7 +318,17 @@ def docket_summary(project_id):
         params,
     ).fetchall()
 
-    # Build grouped structure
+
+@bp.route("/projects/<int:project_id>/docket-summary", methods=["GET"])
+def docket_summary(project_id):
+    """Docket summary grouped by category/resource for a supplier."""
+    db = get_db()
+    where, params, err = _build_summary_filter(project_id, request.args)
+    if err:
+        return jsonify({"error": err}), 400
+
+    rows = _run_summary_query(db, where, params)
+
     groups = {}
     grand_total = 0
     for r in rows:
@@ -317,9 +341,10 @@ def docket_summary(project_id):
         grand_total += d["subtotal"] or 0
 
     return jsonify({
-        "supplier": supplier,
-        "date_from": date_from,
-        "date_to": date_to,
+        "supplier": request.args.get("supplier"),
+        "date_from": request.args.get("date_from"),
+        "date_to": request.args.get("date_to"),
+        "docket_ids": request.args.get("docket_ids"),
         "groups": list(groups.values()),
         "grand_total": grand_total,
     })
@@ -329,41 +354,11 @@ def docket_summary(project_id):
 def docket_summary_csv(project_id):
     """Export docket summary as CSV."""
     db = get_db()
-    supplier = request.args.get("supplier")
-    if not supplier:
-        return jsonify({"error": "supplier parameter is required"}), 400
+    where, params, err = _build_summary_filter(project_id, request.args)
+    if err:
+        return jsonify({"error": err}), 400
 
-    date_from = request.args.get("date_from")
-    date_to = request.args.get("date_to")
-
-    params = [project_id, supplier]
-    where = "dh.project_id = ? AND dh.supplier_name = ?"
-    if date_from:
-        where += " AND dh.date >= ?"
-        params.append(date_from)
-    if date_to:
-        where += " AND dh.date <= ?"
-        params.append(date_to)
-
-    rows = db.execute(
-        f"""SELECT
-                COALESCE(r.category, 'Uncategorised') AS category,
-                COALESCE(r.description, dl.description, 'Unknown') AS resource_desc,
-                dl.unit,
-                SUM(dl.qty) AS total_qty,
-                CASE WHEN SUM(dl.qty) > 0
-                     THEN SUM(dl.amount) / SUM(dl.qty)
-                     ELSE 0 END AS avg_rate,
-                SUM(dl.amount) AS subtotal,
-                COUNT(DISTINCT dh.id) AS docket_count
-            FROM docket_lines dl
-            JOIN docket_headers dh ON dl.docket_id = dh.id
-            LEFT JOIN resources r ON dl.resource_id = r.id
-            WHERE {where}
-            GROUP BY category, resource_desc, dl.unit
-            ORDER BY category, resource_desc""",
-        params,
-    ).fetchall()
+    rows = _run_summary_query(db, where, params)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -378,9 +373,87 @@ def docket_summary_csv(project_id):
             round(r["subtotal"], 2), r["docket_count"],
         ])
 
+    supplier = request.args.get("supplier", "unknown")
     filename = f"docket_summary_{supplier.replace(' ', '_')}.csv"
     return Response(
         output.getvalue(),
         mimetype="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@bp.route("/projects/<int:project_id>/dockets/by-supplier", methods=["GET"])
+def list_dockets_by_supplier(project_id):
+    """List docket headers for a specific supplier (for docket picker)."""
+    db = get_db()
+    supplier = request.args.get("supplier")
+    if not supplier:
+        return jsonify({"error": "supplier parameter is required"}), 400
+
+    rows = db.execute(
+        """SELECT dh.id, dh.date, dh.docket_number,
+                  COALESCE(SUM(dl.amount), 0) AS total_amount,
+                  COUNT(dl.id) AS line_count
+           FROM docket_headers dh
+           LEFT JOIN docket_lines dl ON dl.docket_id = dh.id
+           WHERE dh.project_id = ? AND dh.supplier_name = ?
+           GROUP BY dh.id
+           ORDER BY dh.date DESC, dh.docket_number""",
+        (project_id, supplier),
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@bp.route("/projects/<int:project_id>/check-hashes", methods=["POST"])
+def check_hashes(project_id):
+    """Check which source hashes already exist. Returns matched hashes."""
+    db = get_db()
+    data = request.get_json()
+    if not data or not isinstance(data.get("hashes"), list):
+        return jsonify({"error": "hashes array is required"}), 400
+
+    hashes = data["hashes"]
+    if not hashes:
+        return jsonify({"existing": []})
+
+    placeholders = ",".join("?" * len(hashes))
+    rows = db.execute(
+        f"""SELECT source_hash, id, docket_number, date
+            FROM docket_headers
+            WHERE project_id = ? AND source_hash IN ({placeholders})""",
+        [project_id] + hashes,
+    ).fetchall()
+
+    return jsonify({
+        "existing": [dict(r) for r in rows],
+    })
+
+
+@bp.route("/projects/<int:project_id>/check-duplicate", methods=["GET"])
+def check_duplicate(project_id):
+    """Check if a docket with same supplier+number+date already exists."""
+    db = get_db()
+    supplier = request.args.get("supplier")
+    docket_number = request.args.get("docket_number")
+    date = request.args.get("date")
+    exclude_id = request.args.get("exclude_id")
+
+    if not supplier or not docket_number or not date:
+        return jsonify({"duplicate": False})
+
+    params = [project_id, supplier, docket_number, date]
+    where = """project_id = ? AND supplier_name = ?
+               AND docket_number = ? AND date = ?"""
+    if exclude_id:
+        where += " AND id != ?"
+        params.append(int(exclude_id))
+
+    row = db.execute(
+        f"SELECT id FROM docket_headers WHERE {where} LIMIT 1",
+        params,
+    ).fetchone()
+
+    return jsonify({
+        "duplicate": row is not None,
+        "existing_id": row["id"] if row else None,
+    })

@@ -107,13 +107,20 @@
                 <div class="report-filter-bar" id="report-filter-bar">
                     <div class="filter-field">
                         <label>Supplier</label>
-                        <select id="rpt-supplier"><option value="">-- Select Supplier --</option></select>
+                        <select id="rpt-supplier" onchange="onReportSupplierChange()"><option value="">-- Select Supplier --</option></select>
                     </div>
                     <div class="filter-field">
+                        <label>Mode</label>
+                        <div class="filter-pills" id="rpt-mode-pills">
+                            <button class="pill active" onclick="setReportMode('date', this)">Date Range</button>
+                            <button class="pill" onclick="setReportMode('dockets', this)">By Docket #</button>
+                        </div>
+                    </div>
+                    <div class="filter-field rpt-date-fields" id="rpt-date-fields">
                         <label>From</label>
                         <input type="date" id="rpt-date-from">
                     </div>
-                    <div class="filter-field">
+                    <div class="filter-field rpt-date-fields" id="rpt-date-fields-to">
                         <label>To</label>
                         <input type="date" id="rpt-date-to">
                     </div>
@@ -121,6 +128,13 @@
                         <button class="btn btn-primary" onclick="runDocketSummary()">Generate</button>
                         <button class="btn" id="rpt-csv-btn" onclick="exportSummaryCSV()" style="display:none">Export CSV</button>
                     </div>
+                </div>
+                <div class="rpt-docket-picker" id="rpt-docket-picker" style="display:none">
+                    <div class="docket-picker-header">
+                        <span class="docket-picker-title">Select dockets</span>
+                        <label class="docket-picker-toggle"><input type="checkbox" id="rpt-select-all" onchange="toggleAllDockets(this.checked)"> Select All</label>
+                    </div>
+                    <div class="docket-picker-list" id="rpt-docket-list"></div>
                 </div>
                 <div id="report-output" class="report-output"></div>
             </div>

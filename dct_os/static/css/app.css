@@ -824,3 +824,172 @@ body {
     font-size: 12px;
     color: var(--text-muted);
 }
+
+/* --- Docket Picker (Report mode: by docket #) --- */
+
+.rpt-docket-picker {
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.docket-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 20px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.docket-picker-title {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.docket-picker-toggle {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+
+.docket-picker-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 20px 12px;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.docket-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+}
+
+.docket-chip:hover { background: var(--bg); }
+
+.docket-chip.selected {
+    background: var(--primary-light);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.docket-chip .chip-amount {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.docket-chip.selected .chip-amount { color: var(--primary); }
+
+/* --- Folder Browse (PDF Pane) --- */
+
+.pdf-file-list {
+    border-bottom: 1px solid var(--border);
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.pdf-file-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    font-size: 11px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background 0.1s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pdf-file-item:hover { background: var(--bg); }
+.pdf-file-item.active { background: var(--primary-light); font-weight: 500; }
+
+.pdf-file-item .file-status {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+}
+
+.pdf-file-item .file-status.done {
+    background: var(--success);
+    color: white;
+}
+
+.pdf-file-item .file-status.pending {
+    background: var(--border);
+    color: var(--text-muted);
+}
+
+.pdf-file-name { overflow: hidden; text-overflow: ellipsis; }
+
+.pdf-browse-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.pdf-browse-bar input[type="file"] { display: none; }
+
+.pdf-nav-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.pdf-nav-bar button {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 11px;
+}
+
+.pdf-nav-bar button:hover { background: var(--bg); }
+
+.pdf-viewer {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 8px;
+    background: #e8e8e8;
+}
+
+.pdf-viewer img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 2px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+.pdf-viewer iframe,
+.pdf-viewer embed {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
