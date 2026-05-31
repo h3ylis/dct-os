@@ -16,7 +16,19 @@ DCT-OS is a cost tracking platform built for civil engineering — project manag
 
 ## Quick Start
 
-> v0.1 coming soon — watch the repo for updates.
+```bash
+# Clone and install
+git clone https://github.com/h3ylis/dct-os.git
+cd dct-os
+pip install -e .
+
+# Run
+flask --app dct_os.app run --port 5000
+```
+
+Open [http://localhost:5000](http://localhost:5000) — demo data loads automatically on first run.
+
+Set `DCT_NO_SEED=1` to start with a completely empty database.
 
 ## Licence and Use
 
