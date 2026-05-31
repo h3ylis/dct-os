@@ -19,12 +19,13 @@
             <span id="active-project-name">Select a project</span>
         </div>
         <nav id="header-nav">
-            <button class="nav-btn" onclick="showPanel('dockets')" id="tab-dockets">Dockets</button>
-            <button class="nav-btn" onclick="showPanel('cost-codes')" id="tab-cost-codes">Cost Codes</button>
-            <button class="nav-btn" onclick="showPanel('work-orders')" id="tab-work-orders">Work Orders</button>
-            <button class="nav-btn" onclick="showPanel('purchase-orders')" id="tab-purchase-orders">Purchase Orders</button>
-            <button class="nav-btn" onclick="showPanel('resources')" id="tab-resources">Resources</button>
-            <button class="nav-btn" onclick="showPanel('reports')" id="tab-reports">Reports</button>
+            <button class="nav-btn" onclick="showPanel('dockets')" id="tab-dockets" data-tip="Source documents entered against work orders and cost codes">Dockets</button>
+            <button class="nav-btn" onclick="showPanel('cost-codes')" id="tab-cost-codes" data-tip="Internal budget line items for this project">Cost Codes</button>
+            <button class="nav-btn" onclick="showPanel('work-orders')" id="tab-work-orders" data-tip="Client-facing scope items that group docket entries">Work Orders</button>
+            <button class="nav-btn" onclick="showPanel('purchase-orders')" id="tab-purchase-orders" data-tip="Financial commitments to suppliers with drawdown tracking">Purchase Orders</button>
+            <button class="nav-btn" onclick="showPanel('resources')" id="tab-resources" data-tip="Reusable plant, labour, and materials with standard rates">Resources</button>
+            <button class="nav-btn" onclick="showPanel('reports')" id="tab-reports" data-tip="Summarise docket spend by supplier for claiming">Reports</button>
+            <button class="help-btn" onclick="openHelpDialog()" data-tip="Help &amp; shortcuts" data-tip-pos="left">?</button>
         </nav>
     </header>
 
@@ -49,13 +50,13 @@
                 <div class="panel-toolbar">
                     <h2>Dockets</h2>
                     <div class="toolbar-actions">
-                        <button class="btn btn-primary" onclick="openDocketDialog()">+ Add Docket</button>
+                        <button class="btn btn-primary" onclick="openDocketDialog()" data-tip="Enter a new source document with header and line items" data-tip-pos="left">+ Add Docket</button>
                     </div>
                 </div>
                 <div class="stats-bar" id="stats-bar">
-                    <div class="stat"><span class="stat-label">Total Dockets</span><span class="stat-value" id="stat-count">0</span></div>
-                    <div class="stat"><span class="stat-label">Total Spend</span><span class="stat-value" id="stat-spend">$0</span></div>
-                    <div class="stat"><span class="stat-label">Suppliers</span><span class="stat-value" id="stat-suppliers">0</span></div>
+                    <div class="stat" data-tip="Number of docket headers entered for this project" data-tip-pos="below"><span class="stat-label">Total Dockets</span><span class="stat-value" id="stat-count">0</span></div>
+                    <div class="stat" data-tip="Sum of all docket line amounts" data-tip-pos="below"><span class="stat-label">Total Spend</span><span class="stat-value" id="stat-spend">$0</span></div>
+                    <div class="stat" data-tip="Distinct suppliers across all dockets and purchase orders" data-tip-pos="below"><span class="stat-label">Suppliers</span><span class="stat-value" id="stat-suppliers">0</span></div>
                 </div>
                 <div id="dockets-grid" class="ag-theme-alpine grid-container"></div>
             </div>
@@ -112,8 +113,8 @@
                     <div class="filter-field">
                         <label>Mode</label>
                         <div class="filter-pills" id="rpt-mode-pills">
-                            <button class="pill active" onclick="setReportMode('date', this)">Date Range</button>
-                            <button class="pill" onclick="setReportMode('dockets', this)">By Docket #</button>
+                            <button class="pill active" onclick="setReportMode('date', this)" data-tip="Filter by date range" data-tip-pos="below">Date Range</button>
+                            <button class="pill" onclick="setReportMode('dockets', this)" data-tip="Pick specific dockets to include" data-tip-pos="below">By Docket #</button>
                         </div>
                     </div>
                     <div class="filter-field rpt-date-fields" id="rpt-date-fields">
@@ -133,7 +134,7 @@
                     <div class="docket-picker-header">
                         <span class="docket-picker-title">Select dockets</span>
                         <div class="docket-picker-controls">
-                            <label class="docket-picker-toggle"><input type="checkbox" id="rpt-hide-claimed" onchange="onReportSupplierChange()" checked> Hide claimed</label>
+                            <label class="docket-picker-toggle" data-tip="Hide dockets already tagged with a claim reference" data-tip-pos="below"><input type="checkbox" id="rpt-hide-claimed" onchange="onReportSupplierChange()" checked> Hide claimed</label>
                             <label class="docket-picker-toggle"><input type="checkbox" id="rpt-select-all" onchange="toggleAllDockets(this.checked)"> Select All</label>
                         </div>
                     </div>
@@ -143,9 +144,9 @@
                 <div id="rpt-claim-bar" class="rpt-claim-bar" style="display:none">
                     <div class="claim-bar-inner">
                         <label class="claim-label">Mark selected dockets as claimed:</label>
-                        <input type="text" id="rpt-claim-ref" placeholder="Reference (e.g. INV-001)" class="claim-ref-input">
-                        <button class="btn btn-primary btn-sm" onclick="claimSelectedDockets()">Mark Claimed</button>
-                        <button class="btn btn-sm" onclick="unclaimSelectedDockets()">Unclaim</button>
+                        <input type="text" id="rpt-claim-ref" placeholder="Reference (e.g. INV-001)" class="claim-ref-input" data-tip="Enter the invoice or claim reference number" data-tip-pos="left">
+                        <button class="btn btn-primary btn-sm" onclick="claimSelectedDockets()" data-tip="Tag selected dockets with this reference" data-tip-pos="left">Mark Claimed</button>
+                        <button class="btn btn-sm" onclick="unclaimSelectedDockets()" data-tip="Remove claim tag from selected dockets" data-tip-pos="left">Unclaim</button>
                     </div>
                 </div>
             </div>

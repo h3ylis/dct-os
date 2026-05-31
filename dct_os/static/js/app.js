@@ -200,23 +200,32 @@ async function refreshCurrentPanel() {
 
 function initDocketsGrid() {
     const columnDefs = [
-        { field: 'date', headerName: 'Date', width: 110, sort: 'desc' },
-        { field: 'docket_number', headerName: 'Docket #', width: 120 },
-        { field: 'supplier_name', headerName: 'Supplier', width: 180 },
-        { field: 'po_number', headerName: 'PO', width: 90 },
-        { field: 'line_count', headerName: 'Lines', width: 70, type: 'numericColumn' },
+        { field: 'date', headerName: 'Date', width: 110, sort: 'desc',
+            headerTooltip: 'Date the work was performed' },
+        { field: 'docket_number', headerName: 'Docket #', width: 120,
+            headerTooltip: "Supplier's docket or delivery reference" },
+        { field: 'supplier_name', headerName: 'Supplier', width: 180,
+            headerTooltip: 'Supplier or subcontractor' },
+        { field: 'po_number', headerName: 'PO', width: 90,
+            headerTooltip: 'Linked purchase order number' },
+        { field: 'line_count', headerName: 'Lines', width: 70, type: 'numericColumn',
+            headerTooltip: 'Number of line items on this docket' },
         { field: 'wo_numbers', headerName: 'WOs', width: 130,
-            valueFormatter: p => p.value || '' },
+            valueFormatter: p => p.value || '',
+            headerTooltip: 'Work orders charged by this docket' },
         { field: 'cost_codes', headerName: 'CCs', width: 130,
-            valueFormatter: p => p.value || '' },
-        { field: 'total_amount', headerName: 'Amount', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter },
+            valueFormatter: p => p.value || '',
+            headerTooltip: 'Cost codes charged by this docket' },
+        { field: 'total_amount', headerName: 'Amount', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter,
+            headerTooltip: 'Sum of all line amounts (Qty x Rate)' },
         { field: 'claimed_reference', headerName: 'Claimed', width: 120,
-            valueFormatter: p => p.value || '' },
+            valueFormatter: p => p.value || '',
+            headerTooltip: 'Claim or invoice reference if this docket has been tagged' },
         { headerName: '', width: 50, sortable: false, filter: false, resizable: false,
             valueGetter: () => '⧈',
             cellStyle: { cursor: 'pointer', textAlign: 'center', fontSize: '16px', color: '#666' },
             onCellClicked: params => copyDocket(params.data),
-            tooltipValueGetter: () => 'Copy docket',
+            tooltipValueGetter: () => 'Copy this docket with today\'s date',
         },
     ];
 
@@ -226,6 +235,7 @@ function initDocketsGrid() {
         defaultColDef: { resizable: true, sortable: true, filter: true },
         animateRows: true,
         suppressCellFocus: true,
+        tooltipShowDelay: 400,
         onRowDoubleClicked: params => openDocketDialog(params.data),
         getRowStyle: params => {
             if (params.data && params.data.claimed_reference) {
@@ -263,9 +273,11 @@ async function loadSummary() {
 
 function initCostCodesGrid() {
     const columnDefs = [
-        { field: 'code', headerName: 'Code', width: 120 },
+        { field: 'code', headerName: 'Code', width: 120,
+            headerTooltip: 'Cost code identifier' },
         { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
-        { field: 'budget_amount', headerName: 'Budget', width: 140, type: 'numericColumn', valueFormatter: currencyFormatter },
+        { field: 'budget_amount', headerName: 'Budget', width: 140, type: 'numericColumn', valueFormatter: currencyFormatter,
+            headerTooltip: 'Budgeted amount — compared against actuals in the cost report' },
     ];
 
     const gridOptions = {
@@ -274,6 +286,7 @@ function initCostCodesGrid() {
         defaultColDef: { resizable: true, sortable: true, filter: true },
         animateRows: true,
         suppressCellFocus: true,
+        tooltipShowDelay: 400,
         onRowDoubleClicked: params => openCostCodeDialog(params.data),
     };
 
@@ -307,6 +320,7 @@ function initWorkOrdersGrid() {
         defaultColDef: { resizable: true, sortable: true, filter: true },
         animateRows: true,
         suppressCellFocus: true,
+        tooltipShowDelay: 400,
         onRowDoubleClicked: params => openWorkOrderDialog(params.data),
     };
 
@@ -329,15 +343,20 @@ async function loadWorkOrders() {
 
 function initPurchaseOrdersGrid() {
     const columnDefs = [
-        { field: 'number', headerName: 'PO Number', width: 120 },
+        { field: 'number', headerName: 'PO Number', width: 120,
+            headerTooltip: 'Purchase order reference number' },
         { field: 'supplier_name', headerName: 'Supplier', flex: 1, minWidth: 180 },
-        { field: 'value', headerName: 'PO Value', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter },
-        { field: 'spent', headerName: 'Spent', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter },
+        { field: 'value', headerName: 'PO Value', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter,
+            headerTooltip: 'Total committed value of this purchase order' },
+        { field: 'spent', headerName: 'Spent', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter,
+            headerTooltip: 'Sum of docket amounts linked to this PO' },
         { field: 'remaining', headerName: 'Remaining', width: 130, type: 'numericColumn', valueFormatter: currencyFormatter,
-            cellStyle: params => params.value < 0 ? { color: '#dc2626', fontWeight: '600' } : null },
+            cellStyle: params => params.value < 0 ? { color: '#dc2626', fontWeight: '600' } : null,
+            headerTooltip: 'PO Value minus Spent — red if overspent' },
         { field: 'raised_date', headerName: 'Raised', width: 110 },
         { field: 'is_active', headerName: 'Active', width: 80,
-            valueFormatter: params => params.value ? 'Yes' : 'No' },
+            valueFormatter: params => params.value ? 'Yes' : 'No',
+            headerTooltip: 'Inactive POs are hidden from the docket entry dropdown' },
     ];
 
     const gridOptions = {
@@ -346,6 +365,7 @@ function initPurchaseOrdersGrid() {
         defaultColDef: { resizable: true, sortable: true, filter: true },
         animateRows: true,
         suppressCellFocus: true,
+        tooltipShowDelay: 400,
         onRowDoubleClicked: params => openPurchaseOrderDialog(params.data),
     };
 
@@ -369,10 +389,13 @@ async function loadPurchaseOrders() {
 function initResourcesGrid() {
     const columnDefs = [
         { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
-        { field: 'unit', headerName: 'Unit', width: 80 },
+        { field: 'unit', headerName: 'Unit', width: 80,
+            headerTooltip: 'Unit of measure (Hr, Day, Tonne, m3, etc.)' },
         { field: 'supplier_name', headerName: 'Supplier', width: 200 },
-        { field: 'standard_rate', headerName: 'Rate', width: 120, type: 'numericColumn', valueFormatter: currencyFormatter },
-        { field: 'category', headerName: 'Category', width: 140 },
+        { field: 'standard_rate', headerName: 'Rate', width: 120, type: 'numericColumn', valueFormatter: currencyFormatter,
+            headerTooltip: 'Default rate auto-filled when selecting this resource on a docket line' },
+        { field: 'category', headerName: 'Category', width: 140,
+            headerTooltip: 'Groups resources in the summary report' },
     ];
 
     const gridOptions = {
@@ -381,6 +404,7 @@ function initResourcesGrid() {
         defaultColDef: { resizable: true, sortable: true, filter: true },
         animateRows: true,
         suppressCellFocus: true,
+        tooltipShowDelay: 400,
         onRowDoubleClicked: params => openResourceDialog(params.data),
     };
 
@@ -418,6 +442,7 @@ function closeModal(event) {
     const overlay = document.getElementById('modal-overlay');
     overlay.classList.remove('open');
     overlay.querySelector('.modal').classList.remove('modal-wide');
+    document.getElementById('modal-save').style.display = '';
     modalContext = null;
 }
 
@@ -503,15 +528,15 @@ function openCostCodeDialog(existing) {
     const e = existing || {};
     const html = `
         <div class="form-group">
-            <label>Code *</label>
+            <label data-tip="A short identifier for this cost code (e.g. CC101)" data-tip-pos="below">Code *</label>
             <input type="text" id="f-cc-code" value="${esc(e.code || '')}">
         </div>
         <div class="form-group">
-            <label>Description</label>
+            <label data-tip="What this cost code covers (e.g. Earthworks, Drainage)" data-tip-pos="below">Description</label>
             <input type="text" id="f-cc-desc" value="${esc(e.description || '')}">
         </div>
         <div class="form-group">
-            <label>Budget Amount</label>
+            <label data-tip="Budgeted amount — the cost report compares actuals against this" data-tip-pos="below">Budget Amount</label>
             <input type="number" id="f-cc-budget" step="0.01" value="${e.budget_amount || 0}">
         </div>
     `;
@@ -578,26 +603,26 @@ function openPurchaseOrderDialog(existing) {
     const html = `
         <div class="form-row">
             <div class="form-group">
-                <label>PO Number *</label>
+                <label data-tip="Your internal purchase order reference number" data-tip-pos="below">PO Number *</label>
                 <input type="text" id="f-po-number" value="${esc(e.number || '')}">
             </div>
             <div class="form-group">
-                <label>PO Value</label>
+                <label data-tip="Total committed value — docket spend is tracked against this" data-tip-pos="below">PO Value</label>
                 <input type="number" id="f-po-value" step="0.01" value="${e.value || 0}">
             </div>
         </div>
         <div class="form-group">
-            <label>Supplier</label>
+            <label data-tip="The supplier this purchase order is issued to" data-tip-pos="below">Supplier</label>
             <input type="text" id="f-po-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options">
             ${supplierDatalistHtml()}
         </div>
         <div class="form-row">
             <div class="form-group">
-                <label>Raised Date</label>
+                <label data-tip="Date the purchase order was raised or approved" data-tip-pos="below">Raised Date</label>
                 <input type="date" id="f-po-raised" value="${e.raised_date || ''}">
             </div>
             <div class="form-group">
-                <label>Active</label>
+                <label data-tip="Inactive POs won't appear in the docket entry dropdown" data-tip-pos="below">Active</label>
                 <select id="f-po-active">
                     <option value="1"${e.is_active !== 0 ? ' selected' : ''}>Yes</option>
                     <option value="0"${e.is_active === 0 ? ' selected' : ''}>No</option>
@@ -634,26 +659,26 @@ function openResourceDialog(existing) {
     const e = existing || {};
     const html = `
         <div class="form-group">
-            <label>Description *</label>
+            <label data-tip="Name of the resource (e.g. 20T Excavator, Plant Operator)" data-tip-pos="below">Description *</label>
             <input type="text" id="f-res-desc" value="${esc(e.description || '')}">
         </div>
         <div class="form-row">
             <div class="form-group">
-                <label>Unit *</label>
+                <label data-tip="Unit of measure (e.g. Hr, Day, Tonne, m3, Ea)" data-tip-pos="below">Unit *</label>
                 <input type="text" id="f-res-unit" value="${esc(e.unit || '')}" placeholder="Hr, Day, Tonne, m3...">
             </div>
             <div class="form-group">
-                <label>Standard Rate</label>
+                <label data-tip="Default rate auto-filled when this resource is selected on a docket line" data-tip-pos="below">Standard Rate</label>
                 <input type="number" id="f-res-rate" step="0.01" value="${e.standard_rate || 0}">
             </div>
         </div>
         <div class="form-group">
-            <label>Supplier</label>
+            <label data-tip="The supplier who provides this resource (optional)" data-tip-pos="below">Supplier</label>
             <input type="text" id="f-res-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options">
             ${supplierDatalistHtml()}
         </div>
         <div class="form-group">
-            <label>Category</label>
+            <label data-tip="Groups resources in the summary report (e.g. Plant, Labour, Materials)" data-tip-pos="below">Category</label>
             <input type="text" id="f-res-category" value="${esc(e.category || '')}" placeholder="Plant, Labour, Materials...">
         </div>
     `;
@@ -719,22 +744,22 @@ function openDocketDialog(existing) {
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Date *</label>
+                        <label data-tip="Date the work was performed or the docket was issued" data-tip-pos="below">Date *</label>
                         <input type="date" id="f-dk-date" value="${e.date || today}">
                     </div>
                     <div class="form-group">
-                        <label>Docket #</label>
+                        <label data-tip="Supplier's docket or delivery reference number" data-tip-pos="below">Docket #</label>
                         <input type="text" id="f-dk-number" value="${esc(e.docket_number || '')}">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Supplier</label>
+                        <label data-tip="The supplier or subcontractor who performed the work" data-tip-pos="below">Supplier</label>
                         <input type="text" id="f-dk-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options">
                         ${supplierDatalistHtml()}
                     </div>
                     <div class="form-group">
-                        <label>Purchase Order</label>
+                        <label data-tip="Link to a purchase order to track drawdown against committed spend" data-tip-pos="below">Purchase Order</label>
                         <select id="f-dk-po" onchange="onDocketPOChange()">
                             <option value="">-- Select PO --</option>
                             ${poOptions}
@@ -752,14 +777,14 @@ function openDocketDialog(existing) {
                         <table class="docket-lines-table">
                             <thead>
                                 <tr>
-                                    <th class="col-wo">WO</th>
-                                    <th class="col-cc">CC</th>
-                                    <th class="col-res">Resource</th>
+                                    <th class="col-wo" data-tip="Work Order — which scope item this line charges to" data-tip-pos="below">WO</th>
+                                    <th class="col-cc" data-tip="Cost Code — which budget category this line charges to" data-tip-pos="below">CC</th>
+                                    <th class="col-res" data-tip="Select a resource to auto-fill description, unit, and rate" data-tip-pos="below">Resource</th>
                                     <th class="col-desc">Description</th>
                                     <th class="col-qty">Qty</th>
                                     <th class="col-unit">Unit</th>
                                     <th class="col-rate">Rate</th>
-                                    <th class="col-amt">Amount</th>
+                                    <th class="col-amt" data-tip="Qty x Rate (auto-calculated)" data-tip-pos="below">Amount</th>
                                     <th class="col-rm"></th>
                                 </tr>
                             </thead>
@@ -1492,6 +1517,64 @@ function esc(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+// --- Help Dialog ---
+
+function openHelpDialog() {
+    const html = `<div class="help-content">
+        <div class="help-section">
+            <h4>Getting Started</h4>
+            <p>Select a project from the sidebar to begin. Each project tracks its own dockets, cost codes, work orders, and purchase orders.</p>
+        </div>
+        <div class="help-section">
+            <h4>Key Concepts</h4>
+            <dl>
+                <dt>Docket</dt>
+                <dd>A source document (delivery docket, timesheet, invoice) with one or more line items recording work done.</dd>
+                <dt>Work Order (WO)</dt>
+                <dd>A client-facing scope item. Docket lines are assigned to a WO to track what scope the cost relates to.</dd>
+                <dt>Cost Code (CC)</dt>
+                <dd>An internal budget category. Each cost code has a budget amount; actual spend is tracked via docket lines.</dd>
+                <dt>Purchase Order (PO)</dt>
+                <dd>A financial commitment to a supplier. Dockets assigned to a PO draw down its value, showing remaining budget.</dd>
+                <dt>Resource</dt>
+                <dd>A reusable item (plant, labour, material) with a standard rate. Selecting a resource auto-fills the rate and unit.</dd>
+                <dt>Claim Reference</dt>
+                <dd>A tag (e.g. invoice number) applied to dockets that have been claimed or invoiced, to prevent double-counting.</dd>
+            </dl>
+        </div>
+        <div class="help-section">
+            <h4>Docket Entry</h4>
+            <p>Click <strong>+ Add Docket</strong> to open the entry form. Each docket has a header (date, supplier, PO) and one or more line items.</p>
+            <p>Use the document toggle <strong>\u{1F4C4}</strong> on the left edge to open the source document viewer. Click the folder icon to browse a folder of PDFs/images and enter them one by one.</p>
+            <p>The <strong>WO → CC cascade</strong>: when you select a work order on a line, the cost code dropdown filters to only the valid cost codes for that WO.</p>
+            <p>The <strong>copy button</strong> (⧈) in the grid duplicates an existing docket with today's date — useful for recurring daily dockets.</p>
+        </div>
+        <div class="help-section">
+            <h4>Reports &amp; Claims</h4>
+            <p>The <strong>Docket Summary Report</strong> aggregates spend by supplier. Use date range or pick specific dockets. Export to CSV for external use.</p>
+            <p><strong>Claiming</strong> tags dockets with a reference string (e.g. an invoice number). Claimed dockets show a green tint in the grid and can be filtered out of the picker.</p>
+        </div>
+        <div class="help-section">
+            <h4>Keyboard Shortcuts</h4>
+            <dl>
+                <dt><kbd>Esc</kbd></dt>
+                <dd>Close the current dialog</dd>
+                <dt><kbd>Double-click</kbd></dt>
+                <dd>Edit any row in the grid</dd>
+            </dl>
+        </div>
+        <div class="help-section">
+            <h4>Tips</h4>
+            <p>Hover over buttons and labels throughout the app for contextual help.</p>
+            <p>All grid columns are sortable, filterable, and resizable — right-click a column header for options.</p>
+            <p>PO drawdown updates in real time as dockets are entered against a purchase order.</p>
+        </div>
+    </div>`;
+    openModal('Help', html, { save: async () => {} });
+    // Hide the save button for help dialog
+    document.getElementById('modal-save').style.display = 'none';
 }
 
 // --- Keyboard shortcuts ---
