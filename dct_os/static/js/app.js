@@ -811,7 +811,7 @@ function openDocketDialog(existing) {
                 <div class="form-row">
                     <div class="form-group">
                         <label data-tip="The supplier or subcontractor who performed the work" data-tip-pos="below">Supplier</label>
-                        <input type="text" id="f-dk-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options">
+                        <input type="text" id="f-dk-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options" oninput="refreshResourceDropdowns()">
                         ${supplierDatalistHtml()}
                     </div>
                     <div class="form-group">
@@ -933,16 +933,14 @@ function addDocketLine(data) {
 
     const woOpts = cachedWorkOrders
         .filter(w => w.status === 'Active')
-        .map(w => `<option value="${w.id}"${d.work_order_id === w.id ? ' selected' : ''}>${esc(w.number)}</option>`)
+        .map(w => `<option value="${w.id}"${d.work_order_id === w.id ? ' selected' : ''}>${esc(w.number)}${w.description ? ' — ' + esc(w.description) : ''}</option>`)
         .join('');
 
     const ccOpts = cachedCostCodes
         .map(c => `<option value="${c.id}"${d.cost_code_id === c.id ? ' selected' : ''}>${esc(c.code)}</option>`)
         .join('');
 
-    const resOpts = cachedResources
-        .map(r => `<option value="${r.id}"${d.resource_id === r.id ? ' selected' : ''}>${esc(r.description)}</option>`)
-        .join('');
+    const resOpts = getFilteredResourceOpts(d.resource_id);
 
     const tr = document.createElement('tr');
     tr.id = `dkline-${idx}`;
@@ -995,6 +993,30 @@ async function onLineWOChange(idx) {
             if (validCCs.length === 1) ccSelect.value = validCCs[0].id;
         }
     } catch (e) { /* keep full list */ }
+}
+
+function getFilteredResourceOpts(selectedId) {
+    const supplier = document.getElementById('f-dk-supplier')?.value?.trim().toLowerCase() || '';
+    let filtered = cachedResources;
+    if (supplier) {
+        filtered = cachedResources.filter(r =>
+            r.supplier_name && r.supplier_name.trim().toLowerCase() === supplier
+        );
+        // If no resources match this supplier, fall back to all
+        if (filtered.length === 0) filtered = cachedResources;
+    }
+    return filtered
+        .map(r => `<option value="${r.id}"${r.id === selectedId || r.id == selectedId ? ' selected' : ''}>${esc(r.description)}</option>`)
+        .join('');
+}
+
+function refreshResourceDropdowns() {
+    document.querySelectorAll('#docket-lines-body tr').forEach(tr => {
+        const resSelect = tr.querySelector('select[id^="ln-res-"]');
+        if (!resSelect) return;
+        const currentVal = parseInt(resSelect.value) || null;
+        resSelect.innerHTML = '<option value="">--</option>' + getFilteredResourceOpts(currentVal);
+    });
 }
 
 function onLineResourceChange(idx) {
@@ -1105,6 +1127,7 @@ function onDocketPOChange() {
     const po = cachedPurchaseOrders.find(p => p.id === poId);
     if (po && po.supplier_name) {
         supplierEl.value = po.supplier_name;
+        refreshResourceDropdowns();
     }
 }
 
