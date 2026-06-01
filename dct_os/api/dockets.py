@@ -485,6 +485,195 @@ def check_hashes(project_id):
     })
 
 
+@bp.route("/projects/<int:project_id>/dockets/export-csv", methods=["GET"])
+def export_dockets_csv(project_id):
+    """Export raw docket data as CSV (one row per line item)."""
+    db = get_db()
+    rows = db.execute(
+        """SELECT dh.date, dh.docket_number, dh.supplier_name,
+                  po.number AS po_number,
+                  wo.number AS wo_number,
+                  cc.code AS cost_code,
+                  r.description AS resource_description,
+                  dl.description, dl.qty, dl.unit, dl.rate, dl.amount,
+                  dh.notes, dh.claimed_reference
+           FROM docket_headers dh
+           LEFT JOIN purchase_orders po ON dh.purchase_order_id = po.id
+           JOIN docket_lines dl ON dl.docket_id = dh.id
+           LEFT JOIN work_orders wo ON dl.work_order_id = wo.id
+           LEFT JOIN cost_codes cc ON dl.cost_code_id = cc.id
+           LEFT JOIN resources r ON dl.resource_id = r.id
+           WHERE dh.project_id = ?
+           ORDER BY dh.date, dh.docket_number, dl.sort_order""",
+        (project_id,),
+    ).fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Date", "Docket #", "Supplier", "PO #",
+        "WO #", "Cost Code", "Resource", "Description",
+        "Qty", "Unit", "Rate", "Amount", "Notes", "Claimed",
+    ])
+    for r in rows:
+        writer.writerow([
+            r["date"], r["docket_number"], r["supplier_name"],
+            r["po_number"] or "", r["wo_number"] or "",
+            r["cost_code"] or "", r["resource_description"] or "",
+            r["description"] or "", r["qty"], r["unit"] or "",
+            round(r["rate"] or 0, 2), round(r["amount"] or 0, 2),
+            r["notes"] or "", r["claimed_reference"] or "",
+        ])
+
+    project = db.execute(
+        "SELECT code FROM projects WHERE id = ?", (project_id,)
+    ).fetchone()
+    code = (project["code"] or "project").replace(" ", "_") if project else "project"
+    filename = f"dockets_{code}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@bp.route("/projects/<int:project_id>/dockets/import-csv", methods=["POST"])
+def import_dockets_csv(project_id):
+    """Import dockets from CSV. Matches WO/CC/Resource by code/number."""
+    db = get_db()
+
+    if "file" not in request.files:
+        # Try JSON body with csv_text
+        data = request.get_json()
+        if not data or not data.get("csv_text"):
+            return jsonify({"error": "CSV file or csv_text required"}), 400
+        reader = csv.DictReader(io.StringIO(data["csv_text"]))
+    else:
+        f = request.files["file"]
+        text = f.read().decode("utf-8-sig")
+        reader = csv.DictReader(io.StringIO(text))
+
+    # Build lookup maps for this project
+    wos = {
+        r["number"]: r["id"]
+        for r in db.execute(
+            "SELECT id, number FROM work_orders WHERE project_id = ?",
+            (project_id,),
+        ).fetchall()
+    }
+    ccs = {
+        r["code"]: r["id"]
+        for r in db.execute(
+            "SELECT id, code FROM cost_codes WHERE project_id = ?",
+            (project_id,),
+        ).fetchall()
+    }
+    pos = {
+        r["number"]: r["id"]
+        for r in db.execute(
+            "SELECT id, number FROM purchase_orders WHERE project_id = ?",
+            (project_id,),
+        ).fetchall()
+    }
+    resources = {
+        r["description"].lower(): r["id"]
+        for r in db.execute("SELECT id, description FROM resources").fetchall()
+    }
+
+    # Group CSV rows into docket headers
+    groups = {}
+    row_count = 0
+    for row in reader:
+        row_count += 1
+        date = (row.get("Date") or "").strip()
+        docket_num = (row.get("Docket #") or "").strip()
+        supplier = (row.get("Supplier") or "").strip()
+        if not date:
+            continue
+
+        key = (date, docket_num, supplier)
+        if key not in groups:
+            groups[key] = {
+                "date": date,
+                "docket_number": docket_num or None,
+                "supplier_name": supplier or None,
+                "po_number": (row.get("PO #") or "").strip() or None,
+                "notes": (row.get("Notes") or "").strip() or None,
+                "lines": [],
+            }
+
+        wo_num = (row.get("WO #") or "").strip()
+        cc_code = (row.get("Cost Code") or "").strip()
+        res_desc = (row.get("Resource") or "").strip()
+
+        try:
+            qty = float(row.get("Qty") or 0)
+        except (ValueError, TypeError):
+            qty = 0
+        try:
+            rate = float(row.get("Rate") or 0)
+        except (ValueError, TypeError):
+            rate = 0
+
+        groups[key]["lines"].append({
+            "work_order_id": wos.get(wo_num),
+            "cost_code_id": ccs.get(cc_code),
+            "resource_id": resources.get(res_desc.lower()) if res_desc else None,
+            "description": (row.get("Description") or "").strip() or None,
+            "qty": qty,
+            "unit": (row.get("Unit") or "").strip() or None,
+            "rate": rate,
+        })
+
+    # Insert dockets, skipping duplicates
+    created = 0
+    skipped = 0
+    for key, grp in groups.items():
+        date, docket_num, supplier = key
+        if docket_num and supplier:
+            dup = db.execute(
+                """SELECT id FROM docket_headers
+                   WHERE project_id = ? AND supplier_name = ?
+                   AND docket_number = ? AND date = ?""",
+                (project_id, supplier, docket_num, date),
+            ).fetchone()
+            if dup:
+                skipped += 1
+                continue
+
+        po_id = pos.get(grp["po_number"]) if grp["po_number"] else None
+
+        cur = db.execute(
+            """INSERT INTO docket_headers
+               (project_id, purchase_order_id, supplier_name, date,
+                docket_number, notes)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (project_id, po_id, grp["supplier_name"], grp["date"],
+             grp["docket_number"], grp["notes"]),
+        )
+        header_id = cur.lastrowid
+
+        for i, line in enumerate(grp["lines"]):
+            amount = line["qty"] * line["rate"]
+            db.execute(
+                """INSERT INTO docket_lines
+                   (docket_id, work_order_id, cost_code_id, resource_id,
+                    description, qty, unit, rate, amount, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (header_id, line["work_order_id"], line["cost_code_id"],
+                 line["resource_id"], line["description"],
+                 line["qty"], line["unit"], line["rate"], amount, i),
+            )
+        created += 1
+
+    db.commit()
+    return jsonify({
+        "created": created,
+        "skipped": skipped,
+        "rows_read": row_count,
+    })
+
+
 @bp.route("/projects/<int:project_id>/check-duplicate", methods=["GET"])
 def check_duplicate(project_id):
     """Check if a docket with same supplier+number+date already exists."""

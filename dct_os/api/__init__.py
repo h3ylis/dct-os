@@ -1,4 +1,4 @@
-from flask import Blueprint
+from flask import Blueprint, jsonify
 
 from .projects import bp as projects_bp
 from .cost_codes import bp as cost_codes_bp
@@ -15,3 +15,14 @@ api.register_blueprint(resources_bp)
 api.register_blueprint(dockets_bp)
 api.register_blueprint(work_orders_bp)
 api.register_blueprint(purchase_orders_bp)
+
+
+@api.route("/version", methods=["GET"])
+def version_info():
+    from dct_os import __version__
+    from dct_os.db import get_update_info
+    info = {"version": __version__}
+    update = get_update_info()
+    if update:
+        info["update_available"] = update["latest"]
+    return jsonify(info)

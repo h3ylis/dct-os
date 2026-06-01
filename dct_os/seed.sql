@@ -191,4 +191,124 @@ INSERT INTO resources (id, description, unit, supplier_name, standard_rate, cate
 (24, '20T Excavator (Blacksoil)',  'Hr',    'Blacksoil Earthmoving',      230.00, 'Plant'),
 (25, '20T Excavator (Hawk)',       'Hr',    'Hawkridge Constructions',    225.00, 'Plant');
 
--- No demo dockets — users start with a clean slate and enter their own.
+-- Demo dockets for Project 1 (Warrawong Road) only.
+-- No source_hash or source_filename — these are manual entries.
+
+-- Header 1: Mobilisation
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number, notes) VALUES
+(1, 1, 'Redgum Civil Pty Ltd', '2025-01-20', 'RGC-0001', 'Site establishment and mob');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(1, 1, 1, 22, 'Mobilisation', 1, 'LS', 8500.00, 8500.00, 0);
+
+-- Header 2: Earthworks day 1
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 1, 'Redgum Civil Pty Ltd', '2025-01-22', 'RGC-0003');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(2, 2, 2, 1, '20T Excavator', 8, 'Hr', 220.00, 1760.00, 0),
+(2, 2, 2, 2, '10T Tipper', 6, 'Hr', 125.00, 750.00, 1);
+
+-- Header 3: Blacksoil earthworks
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 2, 'Blacksoil Earthmoving', '2025-01-23', 'BSE-0012');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(3, 2, 2, 24, '20T Excavator (Blacksoil)', 10, 'Hr', 230.00, 2300.00, 0),
+(3, 2, 2, 23, '10T Tipper (Blacksoil)', 8, 'Hr', 130.00, 1040.00, 1);
+
+-- Header 4: Traffic management setup
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 3, 'Clearway Traffic Services', '2025-01-24', 'CTS-0045');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(4, 5, 6, 10, '2 Person Crew - Weekday', 8, 'Hr', 95.00, 760.00, 0),
+(4, 5, 6, 11, 'Portable Traffic Light', 1, 'Day', 180.00, 180.00, 1),
+(4, 5, 6, 12, 'TC Travel', 2, 'Ea', 120.00, 240.00, 2);
+
+-- Header 5: Pavement materials delivery
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number, notes) VALUES
+(1, 4, 'Ironbark Quarries', '2025-01-27', 'IQ-2301', 'First load to stockpile area');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(5, 3, 3, 13, 'DGB20 (Delivered)', 120, 'Tonne', 42.00, 5040.00, 0),
+(5, 3, 3, 15, 'Select Fill', 80, 'Tonne', 28.00, 2240.00, 1);
+
+-- Header 6: Earthworks grading
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 1, 'Redgum Civil Pty Ltd', '2025-01-28', 'RGC-0007');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(6, 2, 2, 3, 'Grader', 8, 'Hr', 235.00, 1880.00, 0),
+(6, 2, 2, 6, 'Loader', 4, 'Hr', 185.00, 740.00, 1);
+
+-- Header 7: Compaction and watering
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 5, 'Tablelands Equipment Hire', '2025-01-29', 'TEH-0088');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(7, 2, 2, 4, 'Roller', 1, 'Day', 280.00, 280.00, 0),
+(7, 2, 2, 5, 'Watercart', 6, 'Hr', 160.00, 960.00, 1);
+
+-- Header 8: Pavement construction
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 1, 'Redgum Civil Pty Ltd', '2025-02-03', 'RGC-0009');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(8, 3, 3, 1, '20T Excavator', 9, 'Hr', 220.00, 1980.00, 0),
+(8, 3, 3, 2, '10T Tipper', 7, 'Hr', 125.00, 875.00, 1);
+
+-- Header 9: More pavement material
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 4, 'Ironbark Quarries', '2025-02-04', 'IQ-2315');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(9, 3, 3, 13, 'DGB20 (Delivered)', 85, 'Tonne', 42.00, 3570.00, 0);
+
+-- Header 10: Traffic management ongoing
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 3, 'Clearway Traffic Services', '2025-02-05', 'CTS-0052');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(10, 5, 6, 10, '2 Person Crew - Weekday', 10, 'Hr', 95.00, 950.00, 0),
+(10, 5, 6, 12, 'TC Travel', 2, 'Ea', 120.00, 240.00, 1);
+
+-- Header 11: Environmental inspection
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 8, 'Greenfield Environmental', '2025-02-06', 'GFE-0003');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(11, 7, 8, 18, 'Environmental Consultant', 6, 'Hr', 145.00, 870.00, 0);
+
+-- Header 12: Drainage concrete
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 7, 'Valley Concrete Supply', '2025-02-10', 'VCS-0201');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(12, 4, 5, 17, 'Concrete 25MPa', 4, 'm3', 255.00, 1020.00, 0);
+
+-- Header 13: Drainage excavation
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 1, 'Redgum Civil Pty Ltd', '2025-02-12', 'RGC-0012');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(13, 4, 5, 1, '20T Excavator', 6, 'Hr', 220.00, 1320.00, 0),
+(13, 4, 5, 6, 'Loader', 3, 'Hr', 185.00, 555.00, 1);
+
+-- Header 14: Drainage rock delivery
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 4, 'Ironbark Quarries', '2025-02-14', 'IQ-2328');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(14, 4, 5, 14, 'Drainage Rock', 45, 'Tonne', 38.00, 1710.00, 0);
+
+-- Header 15: Pavement grading
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 1, 'Redgum Civil Pty Ltd', '2025-02-18', 'RGC-0015');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(15, 3, 3, 3, 'Grader', 10, 'Hr', 235.00, 2350.00, 0);
+
+-- Header 16: Blacksoil pavement assist
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 2, 'Blacksoil Earthmoving', '2025-02-20', 'BSE-0019');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(16, 3, 3, 24, '20T Excavator (Blacksoil)', 8, 'Hr', 230.00, 1840.00, 0);
+
+-- Header 17: Line marking
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number, notes) VALUES
+(1, 6, 'Dawson Line Marking', '2025-03-15', 'DLM-0008', 'Full length both directions');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(17, 6, 7, 20, 'Centre Line', 2400, 'm', 1.80, 4320.00, 0),
+(17, 6, 7, 21, 'Edge Line', 4800, 'm', 1.50, 7200.00, 1);
+
+-- Header 18: Erosion control
+INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, docket_number) VALUES
+(1, 8, 'Greenfield Environmental', '2025-03-18', 'GFE-0007');
+INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
+(18, 7, 8, 19, 'Erosion Control', 1, 'LS', 3200.00, 3200.00, 0);

@@ -50,6 +50,9 @@
                 <div class="panel-toolbar">
                     <h2>Dockets</h2>
                     <div class="toolbar-actions">
+                        <button class="btn" onclick="exportDocketsCSV()" data-tip="Export all dockets as CSV (one row per line item)" data-tip-pos="left">Export CSV</button>
+                        <button class="btn" onclick="document.getElementById('csv-import-input').click()" data-tip="Import dockets from a CSV file" data-tip-pos="left">Import CSV</button>
+                        <input type="file" id="csv-import-input" accept=".csv" onchange="importDocketsCSV(this)" style="display:none">
                         <button class="btn btn-primary" onclick="openDocketDialog()" data-tip="Enter a new source document with header and line items" data-tip-pos="left">+ Add Docket</button>
                     </div>
                 </div>
@@ -168,10 +171,18 @@
             </div>
             <div class="modal-body" id="modal-body"></div>
             <div class="modal-footer">
-                <button class="btn" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-primary" id="modal-save" onclick="saveModal()">Save</button>
+                <button class="btn btn-danger btn-sm" id="modal-delete" onclick="deleteModal()" style="display:none">Delete</button>
+                <div class="modal-footer-right">
+                    <button class="btn" onclick="closeModal()">Cancel</button>
+                    <button class="btn btn-primary" id="modal-save" onclick="saveModal()">Save</button>
+                </div>
             </div>
         </div>
+    </div>
+
+    <div id="update-banner" class="update-banner" style="display:none">
+        <span id="update-banner-text"></span>
+        <button class="update-dismiss" onclick="dismissUpdateBanner()">&times;</button>
     </div>
 
     <div id="toast" class="toast"></div>

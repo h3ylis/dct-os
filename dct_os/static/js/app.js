@@ -433,6 +433,9 @@ function openModal(title, html, context, wide) {
     modal.classList.toggle('modal-wide', !!wide);
     overlay.classList.add('open');
     modalContext = context;
+    // Show/hide delete button
+    const delBtn = document.getElementById('modal-delete');
+    if (delBtn) delBtn.style.display = context && context.onDelete ? '' : 'none';
     const first = document.querySelector('.modal-body input, .modal-body select');
     if (first) first.focus();
 }
@@ -443,7 +446,24 @@ function closeModal(event) {
     overlay.classList.remove('open');
     overlay.querySelector('.modal').classList.remove('modal-wide');
     document.getElementById('modal-save').style.display = '';
+    document.getElementById('modal-delete').style.display = 'none';
     modalContext = null;
+}
+
+async function deleteModal() {
+    if (!modalContext || !modalContext.onDelete) return;
+    const name = modalContext.deleteLabel || 'this item';
+    if (!confirm('Delete ' + name + '? This cannot be undone.')) return;
+    try {
+        await modalContext.onDelete();
+        closeModal();
+        await refreshProjectData();
+        await refreshCurrentPanel();
+        if (activePanel === 'dockets') await loadSummary();
+        toast(modalContext.deleteMsg || 'Deleted', 'success');
+    } catch (e) {
+        // error already toasted by apiRequest
+    }
 }
 
 async function saveModal() {
@@ -501,7 +521,7 @@ function openProjectDialog(existing) {
             </div>
         </div>
     `;
-    openModal(existing ? 'Edit Project' : 'New Project', html, {
+    const ctx = {
         successMsg: existing ? 'Project updated' : 'Project created',
         save: async () => {
             const body = {
@@ -520,7 +540,19 @@ function openProjectDialog(existing) {
             }
             await loadProjects();
         },
-    });
+    };
+    if (existing) {
+        ctx.onDelete = async () => {
+            await apiRequest('DELETE', `/api/projects/${existing.id}`);
+            activeProjectId = null;
+            document.getElementById('active-project-name').textContent = 'Select a project';
+            showPanel('empty');
+            await loadProjects();
+        };
+        ctx.deleteLabel = existing.name;
+        ctx.deleteMsg = 'Project deleted';
+    }
+    openModal(existing ? 'Edit Project' : 'New Project', html, ctx);
 }
 
 function openCostCodeDialog(existing) {
@@ -540,7 +572,7 @@ function openCostCodeDialog(existing) {
             <input type="number" id="f-cc-budget" step="0.01" value="${e.budget_amount || 0}">
         </div>
     `;
-    openModal(existing ? 'Edit Cost Code' : 'New Cost Code', html, {
+    const ctx = {
         successMsg: existing ? 'Cost code updated' : 'Cost code created',
         save: async () => {
             const body = {
@@ -555,7 +587,13 @@ function openCostCodeDialog(existing) {
                 await apiRequest('POST', `/api/projects/${activeProjectId}/cost-codes`, body);
             }
         },
-    });
+    };
+    if (existing) {
+        ctx.onDelete = async () => { await apiRequest('DELETE', `/api/cost-codes/${existing.id}`); };
+        ctx.deleteLabel = existing.code;
+        ctx.deleteMsg = 'Cost code deleted';
+    }
+    openModal(existing ? 'Edit Cost Code' : 'New Cost Code', html, ctx);
 }
 
 function openWorkOrderDialog(existing) {
@@ -579,7 +617,7 @@ function openWorkOrderDialog(existing) {
             </select>
         </div>
     `;
-    openModal(existing ? 'Edit Work Order' : 'New Work Order', html, {
+    const ctx = {
         successMsg: existing ? 'Work order updated' : 'Work order created',
         save: async () => {
             const body = {
@@ -594,7 +632,13 @@ function openWorkOrderDialog(existing) {
                 await apiRequest('POST', `/api/projects/${activeProjectId}/work-orders`, body);
             }
         },
-    });
+    };
+    if (existing) {
+        ctx.onDelete = async () => { await apiRequest('DELETE', `/api/work-orders/${existing.id}`); };
+        ctx.deleteLabel = existing.number;
+        ctx.deleteMsg = 'Work order deleted';
+    }
+    openModal(existing ? 'Edit Work Order' : 'New Work Order', html, ctx);
 }
 
 function openPurchaseOrderDialog(existing) {
@@ -634,7 +678,7 @@ function openPurchaseOrderDialog(existing) {
             <textarea id="f-po-notes" rows="2">${esc(e.notes || '')}</textarea>
         </div>
     `;
-    openModal(existing ? 'Edit Purchase Order' : 'New Purchase Order', html, {
+    const ctx = {
         successMsg: existing ? 'Purchase order updated' : 'Purchase order created',
         save: async () => {
             const body = {
@@ -652,7 +696,13 @@ function openPurchaseOrderDialog(existing) {
                 await apiRequest('POST', `/api/projects/${activeProjectId}/purchase-orders`, body);
             }
         },
-    });
+    };
+    if (existing) {
+        ctx.onDelete = async () => { await apiRequest('DELETE', `/api/purchase-orders/${existing.id}`); };
+        ctx.deleteLabel = 'PO ' + existing.number;
+        ctx.deleteMsg = 'Purchase order deleted';
+    }
+    openModal(existing ? 'Edit Purchase Order' : 'New Purchase Order', html, ctx);
 }
 
 function openResourceDialog(existing) {
@@ -682,7 +732,7 @@ function openResourceDialog(existing) {
             <input type="text" id="f-res-category" value="${esc(e.category || '')}" placeholder="Plant, Labour, Materials...">
         </div>
     `;
-    openModal(existing ? 'Edit Resource' : 'New Resource', html, {
+    const ctx = {
         successMsg: existing ? 'Resource updated' : 'Resource created',
         save: async () => {
             const body = {
@@ -699,7 +749,13 @@ function openResourceDialog(existing) {
                 await apiRequest('POST', '/api/resources', body);
             }
         },
-    });
+    };
+    if (existing) {
+        ctx.onDelete = async () => { await apiRequest('DELETE', `/api/resources/${existing.id}`); };
+        ctx.deleteLabel = existing.description;
+        ctx.deleteMsg = 'Resource deleted';
+    }
+    openModal(existing ? 'Edit Resource' : 'New Resource', html, ctx);
 }
 
 // --- Docket Dialog (Header + Lines) ---
@@ -815,7 +871,7 @@ function openDocketDialog(existing) {
     const isEdit = existing && existing.id;
     const modalTitle = isEdit ? 'Edit Docket' : (existing ? 'New Docket (Copy)' : 'New Docket');
 
-    openModal(modalTitle, html, {
+    const ctx = {
         successMsg: isEdit ? 'Docket updated' : 'Docket created',
         save: async () => {
             const body = {
@@ -841,7 +897,13 @@ function openDocketDialog(existing) {
                 markCurrentFileEntered();
             }
         },
-    }, true);
+    };
+    if (isEdit) {
+        ctx.onDelete = async () => { await apiRequest('DELETE', `/api/dockets/${existing.id}`); };
+        ctx.deleteLabel = existing.docket_number || ('docket #' + existing.id);
+        ctx.deleteMsg = 'Docket deleted';
+    }
+    openModal(modalTitle, html, ctx, true);
 
     // Populate existing lines or add one empty line
     if (e.lines && e.lines.length > 0) {
@@ -1510,6 +1572,43 @@ function getCurrentFileName() {
     return browseFiles[browseFileIndex].name;
 }
 
+// --- CSV Export / Import ---
+
+function exportDocketsCSV() {
+    if (!activeProjectId) { toast('Select a project first', 'error'); return; }
+    window.open('/api/projects/' + activeProjectId + '/dockets/export-csv', '_blank');
+}
+
+async function importDocketsCSV(input) {
+    if (!activeProjectId) { toast('Select a project first', 'error'); return; }
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    input.value = '';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const resp = await fetch('/api/projects/' + activeProjectId + '/dockets/import-csv', {
+            method: 'POST',
+            body: formData,
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            toast(err.error || 'Import failed', 'error');
+            return;
+        }
+        const result = await resp.json();
+        const msg = result.created + ' docket(s) imported' +
+            (result.skipped > 0 ? ', ' + result.skipped + ' duplicate(s) skipped' : '');
+        toast(msg, 'success');
+        await refreshProjectData();
+        await refreshCurrentPanel();
+    } catch (e) {
+        toast('Import failed: ' + e.message, 'error');
+    }
+}
+
 // --- Utilities ---
 
 function esc(str) {
@@ -1583,6 +1682,29 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeModal();
 });
 
+// --- Version Check ---
+
+async function checkForUpdates() {
+    try {
+        const data = await apiFetch('/api/version');
+        if (data.update_available) {
+            const banner = document.getElementById('update-banner');
+            const text = document.getElementById('update-banner-text');
+            if (banner && text) {
+                text.textContent = 'DCT-OS v' + data.update_available +
+                    ' is available (you have v' + data.version +
+                    '). Run "git pull" to update.';
+                banner.style.display = '';
+            }
+        }
+    } catch (e) { /* non-critical */ }
+}
+
+function dismissUpdateBanner() {
+    const banner = document.getElementById('update-banner');
+    if (banner) banner.style.display = 'none';
+}
+
 // --- Init ---
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1594,4 +1716,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjects();
 
     showPanel('empty');
+
+    // Check for updates after a short delay (non-blocking)
+    setTimeout(checkForUpdates, 3000);
 });

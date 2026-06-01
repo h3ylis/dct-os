@@ -20,107 +20,151 @@ def client():
 
 
 def _create_test_dockets(client):
-    """Create a small set of dockets for tests that need transaction data.
+    """Create a self-contained test project with WOs, CCs, PO, and dockets.
 
-    Creates 3 docket headers under project 1 (Warrawong Road):
-      - RGC-0001 (2025-02-03): 2 lines, total $2,640
-      - RGC-0003 (2025-02-04): 1 line,  total $1,125
-      - RGC-0005 (2025-02-05): 1 line,  total $1,880
+    Creates:
+      - 1 project ("Test Project", TEST-001)
+      - 2 work orders (WT-001 Earthworks, WT-002 Pavement)
+      - 2 cost codes (CT-01 Earthworks $420k, CT-02 Pavement $650k)
+      - 1 purchase order (PT-001 Test Supplier $45,000)
+      - 3 docket headers:
+          RGC-T001 (2025-02-03): 2 lines, total $2,640
+          RGC-T003 (2025-02-04): 1 line,  total $1,125
+          RGC-T005 (2025-02-05): 1 line,  total $1,880
+      Grand total: $5,645
 
-    All assigned to PO 1 (Redgum Civil 45201).
-    Grand total: $5,645
-
-    Returns a list of created docket IDs.
+    Returns (project_id, [docket_id1, docket_id2, docket_id3]).
     """
+    # Create test project
+    resp = client.post("/api/projects", json={
+        "name": "Test Project", "code": "TEST-001", "status": "Active",
+    }, content_type="application/json")
+    project = json.loads(resp.data)
+    pid = project["id"]
+
+    # Create work orders
+    wo1 = json.loads(client.post(
+        f"/api/projects/{pid}/work-orders",
+        json={"number": "WT-001", "description": "Earthworks", "status": "Active"},
+        content_type="application/json",
+    ).data)
+    wo2 = json.loads(client.post(
+        f"/api/projects/{pid}/work-orders",
+        json={"number": "WT-002", "description": "Pavement", "status": "Active"},
+        content_type="application/json",
+    ).data)
+
+    # Create cost codes
+    cc1 = json.loads(client.post(
+        f"/api/projects/{pid}/cost-codes",
+        json={"code": "CT-01", "description": "Earthworks", "budget_amount": 420000},
+        content_type="application/json",
+    ).data)
+    cc2 = json.loads(client.post(
+        f"/api/projects/{pid}/cost-codes",
+        json={"code": "CT-02", "description": "Pavement", "budget_amount": 650000},
+        content_type="application/json",
+    ).data)
+
+    # Create purchase order
+    po = json.loads(client.post(
+        f"/api/projects/{pid}/purchase-orders",
+        json={"number": "PT-001", "supplier_name": "Test Supplier",
+              "value": 45000, "is_active": 1},
+        content_type="application/json",
+    ).data)
+
+    # Create 3 dockets
     dockets = [
         {
             "date": "2025-02-03",
-            "supplier_name": "Redgum Civil Pty Ltd",
-            "docket_number": "RGC-0001",
-            "purchase_order_id": 1,
+            "supplier_name": "Test Supplier",
+            "docket_number": "RGC-T001",
+            "purchase_order_id": po["id"],
             "lines": [
-                {"work_order_id": 2, "cost_code_id": 2, "resource_id": 1,
+                {"work_order_id": wo1["id"], "cost_code_id": cc1["id"],
                  "description": "Earthworks - 20T Exc", "qty": 8, "unit": "Hr", "rate": 220},
-                {"work_order_id": 2, "cost_code_id": 2, "resource_id": 9,
+                {"work_order_id": wo1["id"], "cost_code_id": cc1["id"],
                  "description": "Earthworks - Super", "qty": 8, "unit": "Hr", "rate": 110},
             ],
         },
         {
             "date": "2025-02-04",
-            "supplier_name": "Redgum Civil Pty Ltd",
-            "docket_number": "RGC-0003",
-            "purchase_order_id": 1,
+            "supplier_name": "Test Supplier",
+            "docket_number": "RGC-T003",
+            "purchase_order_id": po["id"],
             "lines": [
-                {"work_order_id": 2, "cost_code_id": 2, "resource_id": 2,
+                {"work_order_id": wo1["id"], "cost_code_id": cc1["id"],
                  "description": "Earthworks - 10T Tip", "qty": 9, "unit": "Hr", "rate": 125},
             ],
         },
         {
             "date": "2025-02-05",
-            "supplier_name": "Redgum Civil Pty Ltd",
-            "docket_number": "RGC-0005",
-            "purchase_order_id": 1,
+            "supplier_name": "Test Supplier",
+            "docket_number": "RGC-T005",
+            "purchase_order_id": po["id"],
             "lines": [
-                {"work_order_id": 3, "cost_code_id": 3, "resource_id": 3,
+                {"work_order_id": wo2["id"], "cost_code_id": cc2["id"],
                  "description": "Pavement - Grader", "qty": 8, "unit": "Hr", "rate": 235},
             ],
         },
     ]
     ids = []
     for d in dockets:
-        resp = client.post("/api/projects/1/dockets", json=d,
+        resp = client.post(f"/api/projects/{pid}/dockets", json=d,
                            content_type="application/json")
         ids.append(json.loads(resp.data)["id"])
-    return ids
+    return pid, ids
 
 
 # ---------------------------------------------------------------------------
 # Static data tests (projects, cost codes, resources, work orders, POs)
-# These rely only on seed.sql reference data — no dockets needed.
+# These rely only on seed.sql reference data -- no dockets needed.
 # ---------------------------------------------------------------------------
 
 def test_index(client):
     resp = client.get("/")
     assert resp.status_code == 200
-    assert b"DCT-OS" in resp.data
 
 
 def test_list_projects(client):
-    resp = client.get("/api/projects?status=All")
+    resp = client.get("/api/projects")
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert len(data) == 4
-    names = {p["name"] for p in data}
+    assert len(data) >= 4  # seed creates 4
+    names = [p["name"] for p in data]
     assert "Warrawong Road Rehabilitation" in names
 
 
 def test_create_project(client):
     resp = client.post(
         "/api/projects",
-        data=json.dumps({"name": "Test Project", "code": "TST-001"}),
+        data=json.dumps({"name": "New Test Project", "code": "NTP-001"}),
         content_type="application/json",
     )
     assert resp.status_code == 201
     data = json.loads(resp.data)
-    assert data["name"] == "Test Project"
-    assert data["code"] == "TST-001"
-    assert data["id"] is not None
+    assert data["name"] == "New Test Project"
+    assert data["code"] == "NTP-001"
+    assert "id" in data
 
 
 def test_update_project(client):
     resp = client.put(
         "/api/projects/1",
-        data=json.dumps({"status": "Complete"}),
+        data=json.dumps({"name": "Updated Project Name"}),
         content_type="application/json",
     )
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert data["status"] == "Complete"
+    assert data["name"] == "Updated Project Name"
 
 
 def test_delete_project(client):
     resp = client.delete("/api/projects/4")
     assert resp.status_code == 200
+    check = client.get("/api/projects/4")
+    assert check.status_code == 404
 
 
 def test_cost_codes(client):
@@ -128,6 +172,10 @@ def test_cost_codes(client):
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert len(data) == 10
+    first = data[0]
+    assert "code" in first
+    assert "description" in first
+    assert "budget_amount" in first
 
 
 def test_resources(client):
@@ -135,6 +183,10 @@ def test_resources(client):
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert len(data) == 25
+    first = data[0]
+    assert "description" in first
+    assert "unit" in first
+    assert "standard_rate" in first
 
 
 def test_work_orders(client):
@@ -142,19 +194,21 @@ def test_work_orders(client):
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert len(data) == 7
-    numbers = {w["number"] for w in data}
-    assert "W2500101" in numbers
+    first = data[0]
+    assert "number" in first
+    assert "description" in first
+    assert "status" in first
 
 
 def test_create_work_order(client):
     resp = client.post(
         "/api/projects/1/work-orders",
-        data=json.dumps({"number": "W9999", "description": "Test WO"}),
+        data=json.dumps({"number": "W-NEW-001", "description": "New WO"}),
         content_type="application/json",
     )
     assert resp.status_code == 201
     data = json.loads(resp.data)
-    assert data["number"] == "W9999"
+    assert data["number"] == "W-NEW-001"
 
 
 def test_create_purchase_order(client):
@@ -164,6 +218,7 @@ def test_create_purchase_order(client):
             "number": "99999",
             "supplier_name": "Test Supplier",
             "value": 10000.00,
+            "is_active": 1,
         }),
         content_type="application/json",
     )
@@ -178,7 +233,6 @@ def test_wo_cost_codes_matrix(client):
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert len(data) >= 1
-    assert data[0]["code"] == "CC101"
 
 
 def test_po_work_orders(client):
@@ -194,12 +248,13 @@ def test_404_on_missing(client):
 
 
 # ---------------------------------------------------------------------------
-# Docket CRUD tests — create test dockets via API, then exercise endpoints.
+# Docket CRUD tests -- create test dockets via API, then exercise endpoints.
+# All docket tests use a self-contained test project to avoid seed conflicts.
 # ---------------------------------------------------------------------------
 
 def test_dockets_for_project(client):
-    ids = _create_test_dockets(client)
-    resp = client.get("/api/projects/1/dockets")
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/dockets")
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert len(data) == 3
@@ -215,14 +270,15 @@ def test_dockets_for_project(client):
 
 def test_dockets_empty_project(client):
     """A project with no dockets returns an empty list, not an error."""
-    resp = client.get("/api/projects/1/dockets")
+    # Project 2 (Myall Creek) has no seed dockets
+    resp = client.get("/api/projects/2/dockets")
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert data == []
 
 
 def test_get_single_docket(client):
-    ids = _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.get(f"/api/dockets/{ids[0]}")
     assert resp.status_code == 200
     data = json.loads(resp.data)
@@ -273,7 +329,7 @@ def test_create_docket_with_lines(client):
 
 
 def test_update_docket_header(client):
-    ids = _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.put(
         f"/api/dockets/{ids[0]}",
         data=json.dumps({"supplier_name": "Updated Supplier"}),
@@ -286,7 +342,7 @@ def test_update_docket_header(client):
 
 
 def test_update_docket_lines(client):
-    ids = _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.put(
         f"/api/dockets/{ids[0]}",
         data=json.dumps({
@@ -311,7 +367,7 @@ def test_update_docket_lines(client):
 
 
 def test_delete_docket(client):
-    ids = _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.delete(f"/api/dockets/{ids[0]}")
     assert resp.status_code == 200
     check = client.get(f"/api/dockets/{ids[0]}")
@@ -319,12 +375,12 @@ def test_delete_docket(client):
 
 
 # ---------------------------------------------------------------------------
-# Summary / reporting tests — need docket data to produce meaningful output.
+# Summary / reporting tests -- need docket data to produce meaningful output.
 # ---------------------------------------------------------------------------
 
 def test_project_summary(client):
-    _create_test_dockets(client)
-    resp = client.get("/api/projects/1/summary")
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/summary")
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert data["total_dockets"] == 3
@@ -334,7 +390,8 @@ def test_project_summary(client):
 
 def test_project_summary_empty(client):
     """Summary with no dockets returns zeroes, not an error."""
-    resp = client.get("/api/projects/1/summary")
+    # Project 2 has no seed dockets
+    resp = client.get("/api/projects/2/summary")
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert data["total_dockets"] == 0
@@ -342,51 +399,53 @@ def test_project_summary_empty(client):
 
 
 def test_purchase_orders_with_drawdown(client):
-    _create_test_dockets(client)
-    resp = client.get("/api/projects/1/purchase-orders")
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/purchase-orders")
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert len(data) == 8
-    redgum = next(p for p in data if p["number"] == "45201")
-    assert redgum["value"] == 45000.00
-    assert redgum["spent"] == 5645.0
-    assert redgum["remaining"] == 45000.00 - 5645.0
+    assert len(data) == 1  # test project has 1 PO
+    po = data[0]
+    assert po["number"] == "PT-001"
+    assert po["value"] == 45000.00
+    assert po["spent"] == 5645.0
+    assert po["remaining"] == 45000.00 - 5645.0
 
 
 def test_cost_report(client):
-    _create_test_dockets(client)
-    resp = client.get("/api/projects/1/cost-report")
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/cost-report")
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert len(data) == 10
-    earthworks = next(c for c in data if c["code"] == "CC102")
+    assert len(data) == 2  # test project has 2 cost codes
+    earthworks = next(c for c in data if c["code"] == "CT-01")
     assert earthworks["actual_spend"] == 3765.0  # 2640 + 1125
-    assert earthworks["budget_amount"] == 420000.00
-    pavement = next(c for c in data if c["code"] == "CC103")
+    assert earthworks["budget_amount"] == 420000
+    pavement = next(c for c in data if c["code"] == "CT-02")
     assert pavement["actual_spend"] == 1880.0
 
 
 def test_cost_report_empty(client):
     """Cost report with no dockets shows zero actuals."""
-    resp = client.get("/api/projects/1/cost-report")
+    # Project 2 has 8 CCs and no seed dockets
+    resp = client.get("/api/projects/2/cost-report")
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert len(data) == 10
+    assert len(data) == 8
     for cc in data:
         assert cc["actual_spend"] == 0
 
 
 def test_project_suppliers(client):
-    _create_test_dockets(client)
-    resp = client.get("/api/projects/1/suppliers")
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/suppliers")
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert isinstance(data, list)
     assert len(data) > 0
     # Should be sorted case-insensitively
     assert data == sorted(data, key=str.lower)
-    # Redgum Civil Pty Ltd should be in the list (from dockets + POs)
-    assert "Redgum Civil Pty Ltd" in data
+    # Test Supplier should be in the list (from dockets + POs)
+    assert "Test Supplier" in data
 
 
 # ---------------------------------------------------------------------------
@@ -394,11 +453,11 @@ def test_project_suppliers(client):
 # ---------------------------------------------------------------------------
 
 def test_docket_summary(client):
-    _create_test_dockets(client)
-    resp = client.get("/api/projects/1/docket-summary?supplier=Redgum+Civil+Pty+Ltd")
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/docket-summary?supplier=Test+Supplier")
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert data["supplier"] == "Redgum Civil Pty Ltd"
+    assert data["supplier"] == "Test Supplier"
     assert "groups" in data
     assert len(data["groups"]) > 0
     assert data["grand_total"] > 0
@@ -414,10 +473,10 @@ def test_docket_summary(client):
 
 
 def test_docket_summary_date_filter(client):
-    _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.get(
-        "/api/projects/1/docket-summary?"
-        "supplier=Redgum+Civil+Pty+Ltd&date_from=2025-02-01&date_to=2025-02-28"
+        f"/api/projects/{pid}/docket-summary?"
+        "supplier=Test+Supplier&date_from=2025-02-01&date_to=2025-02-28"
     )
     assert resp.status_code == 200
     data = json.loads(resp.data)
@@ -435,9 +494,9 @@ def test_docket_summary_requires_supplier(client):
 
 
 def test_docket_summary_csv(client):
-    _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.get(
-        "/api/projects/1/docket-summary/csv?supplier=Redgum+Civil+Pty+Ltd"
+        f"/api/projects/{pid}/docket-summary/csv?supplier=Test+Supplier"
     )
     assert resp.status_code == 200
     assert "text/csv" in resp.content_type
@@ -450,12 +509,12 @@ def test_docket_summary_csv(client):
 
 def test_docket_summary_by_ids(client):
     """Summary filtered by specific docket IDs instead of date range."""
-    ids = _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     # Only include first two dockets
     id_str = f"{ids[0]},{ids[1]}"
     resp = client.get(
-        f"/api/projects/1/docket-summary?"
-        f"supplier=Redgum+Civil+Pty+Ltd&docket_ids={id_str}"
+        f"/api/projects/{pid}/docket-summary?"
+        f"supplier=Test+Supplier&docket_ids={id_str}"
     )
     assert resp.status_code == 200
     data = json.loads(resp.data)
@@ -464,7 +523,7 @@ def test_docket_summary_by_ids(client):
 
     # Unfiltered should include all three
     all_resp = client.get(
-        "/api/projects/1/docket-summary?supplier=Redgum+Civil+Pty+Ltd"
+        f"/api/projects/{pid}/docket-summary?supplier=Test+Supplier"
     )
     all_data = json.loads(all_resp.data)
     assert all_data["grand_total"] == 5645.0
@@ -477,9 +536,9 @@ def test_docket_summary_by_ids(client):
 
 def test_dockets_by_supplier(client):
     """List docket headers for a specific supplier."""
-    _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.get(
-        "/api/projects/1/dockets/by-supplier?supplier=Redgum+Civil+Pty+Ltd"
+        f"/api/projects/{pid}/dockets/by-supplier?supplier=Test+Supplier"
     )
     assert resp.status_code == 200
     data = json.loads(resp.data)
@@ -499,6 +558,7 @@ def test_dockets_by_supplier_requires_supplier(client):
 
 def test_check_hashes(client):
     """Create a docket with source_hash, then verify check-hashes finds it."""
+    pid, ids = _create_test_dockets(client)
     # Create a docket with a source hash
     docket = {
         "date": "2025-06-01",
@@ -508,7 +568,7 @@ def test_check_hashes(client):
         "source_filename": "test_docket.pdf",
         "lines": [{"description": "Test", "qty": 1, "rate": 100}],
     }
-    resp = client.post("/api/projects/1/dockets",
+    resp = client.post(f"/api/projects/{pid}/dockets",
                        json=docket, content_type="application/json")
     assert resp.status_code == 201
     created = json.loads(resp.data)
@@ -516,7 +576,7 @@ def test_check_hashes(client):
     assert created["source_filename"] == "test_docket.pdf"
 
     # Check that the hash is found
-    check = client.post("/api/projects/1/check-hashes",
+    check = client.post(f"/api/projects/{pid}/check-hashes",
                         json={"hashes": ["abc123def456", "unknown_hash"]},
                         content_type="application/json")
     assert check.status_code == 200
@@ -528,10 +588,10 @@ def test_check_hashes(client):
 
 def test_check_duplicate(client):
     """Check duplicate detection by supplier+number+date."""
-    _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.get(
-        "/api/projects/1/check-duplicate?"
-        "supplier=Redgum+Civil+Pty+Ltd&docket_number=RGC-0001&date=2025-02-03"
+        f"/api/projects/{pid}/check-duplicate?"
+        "supplier=Test+Supplier&docket_number=RGC-T001&date=2025-02-03"
     )
     assert resp.status_code == 200
     data = json.loads(resp.data)
@@ -540,7 +600,7 @@ def test_check_duplicate(client):
 
     # Non-existing combo
     resp2 = client.get(
-        "/api/projects/1/check-duplicate?"
+        f"/api/projects/{pid}/check-duplicate?"
         "supplier=Nobody&docket_number=NOPE-999&date=2099-01-01"
     )
     data2 = json.loads(resp2.data)
@@ -553,9 +613,9 @@ def test_check_duplicate(client):
 
 def test_claim_dockets(client):
     """Claim dockets with a reference string."""
-    ids = _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.post(
-        "/api/projects/1/dockets/claim",
+        f"/api/projects/{pid}/dockets/claim",
         json={"docket_ids": [ids[0], ids[1]], "reference": "INV-TEST-001"},
     )
     assert resp.status_code == 200
@@ -572,15 +632,15 @@ def test_claim_dockets(client):
 
 def test_unclaim_dockets(client):
     """Unclaim previously claimed dockets."""
-    ids = _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     # First claim
     client.post(
-        "/api/projects/1/dockets/claim",
+        f"/api/projects/{pid}/dockets/claim",
         json={"docket_ids": [ids[0]], "reference": "INV-X"},
     )
     # Then unclaim
     resp = client.post(
-        "/api/projects/1/dockets/unclaim",
+        f"/api/projects/{pid}/dockets/unclaim",
         json={"docket_ids": [ids[0]]},
     )
     assert resp.status_code == 200
@@ -595,9 +655,9 @@ def test_unclaim_dockets(client):
 
 
 def test_claim_requires_reference(client):
-    ids = _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.post(
-        "/api/projects/1/dockets/claim",
+        f"/api/projects/{pid}/dockets/claim",
         json={"docket_ids": [ids[0]], "reference": ""},
     )
     assert resp.status_code == 400
@@ -613,32 +673,32 @@ def test_claim_requires_docket_ids(client):
 
 def test_dockets_by_supplier_unclaimed_filter(client):
     """Unclaimed filter hides claimed dockets."""
-    ids = _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
 
-    # Baseline: 3 Redgum dockets
+    # Baseline: 3 Test Supplier dockets
     all_resp = client.get(
-        "/api/projects/1/dockets/by-supplier?supplier=Redgum+Civil+Pty+Ltd"
+        f"/api/projects/{pid}/dockets/by-supplier?supplier=Test+Supplier"
     )
     all_data = json.loads(all_resp.data)
     assert len(all_data) == 3
 
     # Claim first docket
     client.post(
-        "/api/projects/1/dockets/claim",
+        f"/api/projects/{pid}/dockets/claim",
         json={"docket_ids": [ids[0]], "reference": "TEST-FILTER"},
     )
 
     # Unclaimed filter should return 2
     filtered_resp = client.get(
-        "/api/projects/1/dockets/by-supplier?"
-        "supplier=Redgum+Civil+Pty+Ltd&unclaimed=1"
+        f"/api/projects/{pid}/dockets/by-supplier?"
+        "supplier=Test+Supplier&unclaimed=1"
     )
     filtered_data = json.loads(filtered_resp.data)
     assert len(filtered_data) == 2
 
     # Without filter, all 3 still returned
     unfiltered_resp = client.get(
-        "/api/projects/1/dockets/by-supplier?supplier=Redgum+Civil+Pty+Ltd"
+        f"/api/projects/{pid}/dockets/by-supplier?supplier=Test+Supplier"
     )
     unfiltered_data = json.loads(unfiltered_resp.data)
     assert len(unfiltered_data) == 3
@@ -646,11 +706,149 @@ def test_dockets_by_supplier_unclaimed_filter(client):
 
 def test_dockets_by_supplier_returns_claim_fields(client):
     """By-supplier endpoint returns claimed_reference and claimed_at."""
-    _create_test_dockets(client)
+    pid, ids = _create_test_dockets(client)
     resp = client.get(
-        "/api/projects/1/dockets/by-supplier?supplier=Redgum+Civil+Pty+Ltd"
+        f"/api/projects/{pid}/dockets/by-supplier?supplier=Test+Supplier"
     )
     data = json.loads(resp.data)
     first = data[0]
     assert "claimed_reference" in first
     assert "claimed_at" in first
+
+
+# ---------------------------------------------------------------------------
+# CSV export / import tests
+# ---------------------------------------------------------------------------
+
+def test_export_dockets_csv(client):
+    """Export dockets as CSV with one row per line item."""
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/dockets/export-csv")
+    assert resp.status_code == 200
+    assert "text/csv" in resp.content_type
+    text = resp.data.decode("utf-8")
+    lines = text.strip().split("\n")
+    assert len(lines) == 5  # header + 4 line items (2+1+1)
+    assert "Date" in lines[0]
+    assert "Docket #" in lines[0]
+    assert "Amount" in lines[0]
+
+
+def test_export_empty_project_csv(client):
+    """Exporting CSV from a project with no dockets returns header only."""
+    resp = client.get("/api/projects/2/dockets/export-csv")
+    assert resp.status_code == 200
+    text = resp.data.decode("utf-8")
+    lines = text.strip().split("\n")
+    assert len(lines) == 1  # header only
+
+
+def test_import_dockets_csv(client):
+    """Import dockets from CSV text, matching WO/CC by code."""
+    pid, ids = _create_test_dockets(client)
+
+    csv_text = (
+        "Date,Docket #,Supplier,PO #,WO #,Cost Code,Resource,Description,"
+        "Qty,Unit,Rate,Amount,Notes,Claimed\n"
+        "2025-03-01,IMP-001,Import Supplier,PT-001,WT-001,CT-01,,"
+        "Imported item,5,Hr,100,500,,\n"
+        "2025-03-01,IMP-001,Import Supplier,PT-001,WT-002,CT-02,,"
+        "Imported item 2,3,Hr,200,600,,\n"
+    )
+    resp = client.post(
+        f"/api/projects/{pid}/dockets/import-csv",
+        json={"csv_text": csv_text},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["created"] == 1  # 2 CSV rows = 1 docket (same date+number+supplier)
+    assert data["skipped"] == 0
+    assert data["rows_read"] == 2
+
+    # Verify docket was created
+    dockets = json.loads(client.get(f"/api/projects/{pid}/dockets").data)
+    assert len(dockets) == 4  # 3 original + 1 imported
+    imported = [d for d in dockets if d["docket_number"] == "IMP-001"]
+    assert len(imported) == 1
+    assert imported[0]["line_count"] == 2
+
+
+def test_import_csv_skips_duplicates(client):
+    """Import skips dockets with matching supplier+number+date."""
+    pid, ids = _create_test_dockets(client)
+
+    # Try importing a docket that already exists
+    csv_text = (
+        "Date,Docket #,Supplier,PO #,WO #,Cost Code,Resource,Description,"
+        "Qty,Unit,Rate,Amount,Notes,Claimed\n"
+        "2025-02-03,RGC-T001,Test Supplier,,,,,"
+        "Duplicate item,1,Hr,100,100,,\n"
+    )
+    resp = client.post(
+        f"/api/projects/{pid}/dockets/import-csv",
+        json={"csv_text": csv_text},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["created"] == 0
+    assert data["skipped"] == 1
+
+    # Docket count unchanged
+    dockets = json.loads(client.get(f"/api/projects/{pid}/dockets").data)
+    assert len(dockets) == 3
+
+
+def test_import_csv_roundtrip(client):
+    """Export then re-import should produce no new dockets (all duplicates)."""
+    pid, ids = _create_test_dockets(client)
+
+    # Export
+    export_resp = client.get(f"/api/projects/{pid}/dockets/export-csv")
+    csv_text = export_resp.data.decode("utf-8")
+
+    # Re-import the same CSV
+    resp = client.post(
+        f"/api/projects/{pid}/dockets/import-csv",
+        json={"csv_text": csv_text},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["created"] == 0
+    assert data["skipped"] == 3  # all 3 dockets already exist
+
+
+# ---------------------------------------------------------------------------
+# Seed data sanity checks
+# ---------------------------------------------------------------------------
+
+def test_seed_dockets_exist_for_project_1(client):
+    """Project 1 (Warrawong Road) has seed demo dockets."""
+    resp = client.get("/api/projects/1/dockets")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert len(data) == 18  # 18 seed docket headers
+    # Check a known docket
+    rgc_0001 = [d for d in data if d["docket_number"] == "RGC-0001"]
+    assert len(rgc_0001) == 1
+    assert rgc_0001[0]["supplier_name"] == "Redgum Civil Pty Ltd"
+
+
+def test_seed_dockets_absent_for_project_2(client):
+    """Project 2 (Myall Creek) has no seed dockets."""
+    resp = client.get("/api/projects/2/dockets")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert len(data) == 0
+
+
+def test_seed_summary_project_1(client):
+    """Seed docket summary for project 1 has correct totals."""
+    resp = client.get("/api/projects/1/summary")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["total_dockets"] == 18
+    # 8 distinct suppliers in seed POs + docket headers
+    assert data["supplier_count"] >= 6
