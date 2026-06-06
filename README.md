@@ -18,6 +18,21 @@ DCT-OS is a cost tracking platform built for civil engineering — project manag
 
 You only need to do this once. After that, DCT-OS starts automatically every time you turn on your computer.
 
+### Option A: Let Claude do it
+
+If you have [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed, open it and paste this:
+
+```
+Install DCT-OS for me. Run: pip install dct-os, then run: dct-os install.
+If Python isn't installed, download and install it from python.org first
+(make sure "Add Python to PATH" is ticked). After install, run: dct-os
+to start it and open the browser.
+```
+
+Claude will handle the rest. Once it's done, bookmark [http://localhost:5000](http://localhost:5000) and you're set.
+
+### Option B: Do it yourself
+
 ### Step 1: Install Python
 
 1. Go to [python.org/downloads](https://www.python.org/downloads/)
