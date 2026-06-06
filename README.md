@@ -17,18 +17,45 @@ DCT-OS is a cost tracking platform built for civil engineering — project manag
 ## Quick Start
 
 ```bash
-# Clone and install
+pip install dct-os
+dct-os
+```
+
+Your browser opens automatically to [http://localhost:5000](http://localhost:5000). Demo data loads on first run.
+
+### Auto-start on Windows
+
+Run once after installing:
+
+```bash
+dct-os install
+```
+
+DCT-OS will start silently when you log in to Windows and your browser will open to the app. Your database is stored in `%LOCALAPPDATA%\DCT-OS\`.
+
+To remove auto-start (keeps your data):
+
+```bash
+dct-os uninstall
+```
+
+### Install from source
+
+```bash
 git clone https://github.com/h3ylis/dct-os.git
 cd dct-os
 pip install -e .
-
-# Run
-flask --app dct_os.app run --port 5000
+dct-os
 ```
 
-Open [http://localhost:5000](http://localhost:5000) — demo data loads automatically on first run.
+### Options
 
-Set `DCT_NO_SEED=1` to start with a completely empty database.
+| Environment variable | Default | Description |
+|---|---|---|
+| `DCT_PORT` | `5000` | Server port |
+| `DCT_HOST` | `127.0.0.1` | Bind address |
+| `DCT_DATA_DIR` | `.` (current dir) | Where to store the database |
+| `DCT_NO_SEED` | unset | Set to `1` to start with an empty database |
 
 ## Licence and Use
 
