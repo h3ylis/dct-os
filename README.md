@@ -14,7 +14,87 @@ DCT-OS is a cost tracking platform built for civil engineering — project manag
 - REST API for all operations
 - Single binary or `pip install` — runs anywhere
 
-## Quick Start
+## Installation (Windows)
+
+You only need to do this once. After that, DCT-OS starts automatically every time you turn on your computer.
+
+### Step 1: Install Python
+
+1. Go to [python.org/downloads](https://www.python.org/downloads/)
+2. Click the big yellow **Download Python** button
+3. Run the installer
+4. **Important:** Tick the box that says **"Add Python to PATH"** at the bottom of the first screen
+5. Click **Install Now** and wait for it to finish
+
+### Step 2: Install DCT-OS
+
+1. Press the **Windows key**, type `cmd`, and press **Enter** to open a command prompt
+2. Type the following and press **Enter**:
+
+```
+pip install dct-os
+```
+
+Wait for it to finish (you'll see some download progress, then it returns to the blinking cursor).
+
+3. Type the following and press **Enter**:
+
+```
+dct-os install
+```
+
+You'll see a confirmation message. That's it. You're done with the command prompt and can close it.
+
+### Step 3: Start DCT-OS
+
+Type the following and press **Enter**:
+
+```
+dct-os
+```
+
+Your browser will open to DCT-OS with demo data loaded. Have a click around.
+
+From now on, **DCT-OS starts automatically when you log in to Windows**. No command prompt needed. Just open your browser and go to:
+
+**[http://localhost:5000](http://localhost:5000)**
+
+> **Tip:** Bookmark that address. It's your DCT-OS.
+
+### Updating
+
+When a new version is available, a banner will appear at the top of DCT-OS. To update:
+
+1. Open a command prompt (Windows key, type `cmd`, Enter)
+2. Type:
+
+```
+pip install --upgrade dct-os
+```
+
+3. Close the command prompt. DCT-OS will use the new version next time it starts.
+
+Your data is never touched during updates.
+
+### Uninstalling
+
+To stop DCT-OS from starting automatically (your data is kept):
+
+```
+dct-os uninstall
+```
+
+To fully remove:
+
+```
+pip uninstall dct-os
+```
+
+Your database stays in your user folder at `%LOCALAPPDATA%\DCT-OS\` unless you delete it manually.
+
+---
+
+## Quick Start (for developers)
 
 ```bash
 pip install dct-os
@@ -25,18 +105,9 @@ Your browser opens automatically to [http://localhost:5000](http://localhost:500
 
 ### Auto-start on Windows
 
-Run once after installing:
-
 ```bash
-dct-os install
-```
-
-DCT-OS will start silently when you log in to Windows and your browser will open to the app. Your database is stored in `%LOCALAPPDATA%\DCT-OS\`.
-
-To remove auto-start (keeps your data):
-
-```bash
-dct-os uninstall
+dct-os install     # creates a silent startup entry
+dct-os uninstall   # removes it (keeps your data)
 ```
 
 ### Install from source
