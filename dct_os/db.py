@@ -144,19 +144,19 @@ _version_cache = {"latest": None, "checked": False}
 
 
 def check_for_updates():
-    """Check GitHub releases for a newer version. Non-blocking, runs in a thread."""
+    """Check PyPI for a newer version. Non-blocking, runs in a thread."""
     def _check():
         try:
             import urllib.request
             import json
 
-            url = "https://api.github.com/repos/h3ylis/dct-os/releases/latest"
-            req = urllib.request.Request(url, headers={"User-Agent": "DCT-OS"})
+            url = "https://pypi.org/pypi/dct-os/json"
+            req = urllib.request.Request(url, headers={"User-Agent": "DCT-OS/%s" % __version__})
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode())
-                tag = data.get("tag_name", "").lstrip("v")
-                if tag:
-                    _version_cache["latest"] = tag
+                latest = data.get("info", {}).get("version", "")
+                if latest:
+                    _version_cache["latest"] = latest
         except Exception:
             pass  # network errors are fine — version check is best-effort
         finally:

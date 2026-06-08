@@ -230,7 +230,7 @@ def project_summary(project_id):
 def cost_report(project_id):
     db = get_db()
     rows = db.execute(
-        """SELECT cc.code, cc.description, cc.budget_amount,
+        """SELECT cc.id, cc.code, cc.description, cc.budget_amount,
                   COALESCE(SUM(dl.amount), 0) AS actual_spend,
                   cc.budget_amount - COALESCE(SUM(dl.amount), 0) AS variance
            FROM cost_codes cc

@@ -271,13 +271,39 @@ async function loadSummary() {
 
 // --- Cost Codes Grid ---
 
+function burnBarRenderer(params) {
+    const budget = params.data.budget_amount || 0;
+    const actual = params.data.actual_spend || 0;
+    if (budget <= 0) return '<span class="burn-na">--</span>';
+    const pct = Math.min((actual / budget) * 100, 100);
+    const overBudget = actual > budget;
+    const cls = overBudget ? 'burn-over' : pct > 80 ? 'burn-warn' : 'burn-ok';
+    const label = Math.round((actual / budget) * 100) + '%';
+    return `<div class="burn-bar"><div class="burn-fill ${cls}" style="width:${pct}%"></div><span class="burn-label">${label}</span></div>`;
+}
+
+function varianceFormatter(params) {
+    const val = params.value;
+    if (val == null) return '';
+    const formatted = currency(Math.abs(val));
+    if (val < 0) return '<span class="variance-over">(' + formatted + ')</span>';
+    return formatted;
+}
+
 function initCostCodesGrid() {
     const columnDefs = [
-        { field: 'code', headerName: 'Code', width: 120,
+        { field: 'code', headerName: 'Code', width: 100,
             headerTooltip: 'Cost code identifier' },
-        { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
-        { field: 'budget_amount', headerName: 'Budget', width: 140, type: 'numericColumn', valueFormatter: currencyFormatter,
-            headerTooltip: 'Budgeted amount — compared against actuals in the cost report' },
+        { field: 'description', headerName: 'Description', minWidth: 150, flex: 2,
+            headerTooltip: 'What this cost code covers' },
+        { field: 'budget_amount', headerName: 'Budget', width: 130, flex: 1, type: 'numericColumn', valueFormatter: currencyFormatter,
+            headerTooltip: 'Budgeted amount for this cost code' },
+        { field: 'actual_spend', headerName: 'Actual', width: 130, flex: 1, type: 'numericColumn', valueFormatter: currencyFormatter,
+            headerTooltip: 'Total spend from docket lines charged to this cost code' },
+        { field: 'variance', headerName: 'Variance', width: 130, flex: 1, type: 'numericColumn', cellRenderer: params => varianceFormatter(params),
+            headerTooltip: 'Budget minus actual — negative means over budget' },
+        { field: '_burn', headerName: 'Burn', width: 150, cellRenderer: burnBarRenderer, sortable: false, filter: false,
+            headerTooltip: 'Visual burn rate — green under 80%, amber 80-100%, red over budget' },
     ];
 
     const gridOptions = {
@@ -286,6 +312,7 @@ function initCostCodesGrid() {
         defaultColDef: { resizable: true, sortable: true, filter: true },
         animateRows: true,
         suppressCellFocus: true,
+        suppressColumnVirtualisation: true,
         tooltipShowDelay: 400,
         onRowDoubleClicked: params => openCostCodeDialog(params.data),
     };
@@ -297,9 +324,27 @@ function initCostCodesGrid() {
 async function loadCostCodes() {
     if (!activeProjectId || !costCodesGridApi) return;
     try {
-        const data = await apiFetch(`/api/projects/${activeProjectId}/cost-codes`);
+        // Load cost report (includes budget, actual_spend, variance)
+        const data = await apiFetch(`/api/projects/${activeProjectId}/cost-report`);
         costCodesGridApi.setGridOption('rowData', data);
-        cachedCostCodes = data;
+        // Force AG-Grid to re-render cellRenderer columns (burn bars, variance)
+        setTimeout(() => costCodesGridApi.refreshCells({force: true}), 50);
+        // Also load plain cost codes for dropdowns
+        cachedCostCodes = await apiFetch(`/api/projects/${activeProjectId}/cost-codes`);
+        // Update stats bar
+        const totalBudget = data.reduce((s, r) => s + (r.budget_amount || 0), 0);
+        const totalActual = data.reduce((s, r) => s + (r.actual_spend || 0), 0);
+        const remaining = totalBudget - totalActual;
+        const burnPct = totalBudget > 0 ? Math.round((totalActual / totalBudget) * 100) : 0;
+        document.getElementById('cc-stat-budget').textContent = currency(totalBudget);
+        document.getElementById('cc-stat-actual').textContent = currency(totalActual);
+        const remEl = document.getElementById('cc-stat-remaining');
+        remEl.textContent = currency(Math.abs(remaining));
+        remEl.style.color = remaining < 0 ? '#dc3545' : '';
+        if (remaining < 0) remEl.textContent = '(' + remEl.textContent + ')';
+        const burnEl = document.getElementById('cc-stat-burn');
+        burnEl.textContent = burnPct + '%';
+        burnEl.style.color = burnPct > 100 ? '#dc3545' : burnPct > 80 ? '#f0ad4e' : '';
     } catch (e) {
         toast('Failed to load cost codes', 'error');
     }
@@ -1714,9 +1759,9 @@ async function checkForUpdates() {
             const banner = document.getElementById('update-banner');
             const text = document.getElementById('update-banner-text');
             if (banner && text) {
-                text.textContent = 'DCT-OS v' + data.update_available +
-                    ' is available (you have v' + data.version +
-                    '). Run "git pull" to update.';
+                text.innerHTML = 'DCT-OS v' + esc(data.update_available) +
+                    ' is available (you have v' + esc(data.version) +
+                    '). Run <code>dct-os upgrade</code> to update.';
                 banner.style.display = '';
             }
         }

@@ -131,7 +131,7 @@ def test_list_projects(client):
     resp = client.get("/api/projects")
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert len(data) >= 4  # seed creates 4
+    assert len(data) >= 1  # seed creates 1 project
     names = [p["name"] for p in data]
     assert "Warrawong Road Rehabilitation" in names
 
@@ -161,9 +161,16 @@ def test_update_project(client):
 
 
 def test_delete_project(client):
-    resp = client.delete("/api/projects/4")
+    # Create a project to delete (seed only has 1 project now)
+    create = client.post(
+        "/api/projects",
+        data=json.dumps({"name": "To Delete", "code": "DEL-001"}),
+        content_type="application/json",
+    )
+    pid = json.loads(create.data)["id"]
+    resp = client.delete(f"/api/projects/{pid}")
     assert resp.status_code == 200
-    check = client.get("/api/projects/4")
+    check = client.get(f"/api/projects/{pid}")
     assert check.status_code == 404
 
 
@@ -426,11 +433,24 @@ def test_cost_report(client):
 
 def test_cost_report_empty(client):
     """Cost report with no dockets shows zero actuals."""
-    # Project 2 has 8 CCs and no seed dockets
-    resp = client.get("/api/projects/2/cost-report")
+    # Create a fresh project with cost codes but no dockets
+    proj = client.post(
+        "/api/projects",
+        data=json.dumps({"name": "Empty Report Test", "code": "ERT-001"}),
+        content_type="application/json",
+    )
+    pid = json.loads(proj.data)["id"]
+    # Add 2 cost codes
+    for code in ("CC-A", "CC-B"):
+        client.post(
+            f"/api/projects/{pid}/cost-codes",
+            data=json.dumps({"code": code, "description": "Test", "budget_amount": 1000}),
+            content_type="application/json",
+        )
+    resp = client.get(f"/api/projects/{pid}/cost-report")
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert len(data) == 8
+    assert len(data) == 2
     for cc in data:
         assert cc["actual_spend"] == 0
 

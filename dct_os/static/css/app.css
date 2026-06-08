@@ -533,6 +533,14 @@ body {
     gap: 12px;
 }
 
+.update-banner code {
+    background: rgba(0,0,0,0.08);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 12px;
+}
+
 .update-dismiss {
     background: none;
     border: none;
@@ -541,6 +549,44 @@ body {
     cursor: pointer;
     line-height: 1;
     padding: 0 4px;
+}
+
+/* Cost code burn bars */
+.burn-bar {
+    position: relative;
+    height: 20px;
+    background: #e9ecef;
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 4px 0;
+}
+.burn-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+.burn-ok { background: #28a745; }
+.burn-warn { background: #f0ad4e; }
+.burn-over { background: #dc3545; }
+.burn-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    line-height: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #333;
+    mix-blend-mode: multiply;
+}
+.burn-na {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+.variance-over {
+    color: #dc3545;
+    font-weight: 600;
 }
 
 /* --- Docket Entry Layout --- */
