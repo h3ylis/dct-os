@@ -1,4 +1,7 @@
-from flask import Blueprint, jsonify, request
+import csv
+import io
+
+from flask import Blueprint, Response, jsonify, request
 
 from dct_os.db import get_db
 
@@ -100,3 +103,136 @@ def list_categories():
         "SELECT DISTINCT category FROM resources WHERE category IS NOT NULL ORDER BY category"
     ).fetchall()
     return jsonify([r["category"] for r in rows])
+
+
+# ---------------------------------------------------------------------------
+# Import / export
+# ---------------------------------------------------------------------------
+
+def _all_resources(db):
+    return db.execute(
+        "SELECT description, unit, supplier_name, standard_rate, category "
+        "FROM resources ORDER BY category, description"
+    ).fetchall()
+
+
+@bp.route("/resources/export-csv", methods=["GET"])
+def export_resources_csv():
+    """Export the resources table as CSV."""
+    db = get_db()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Description", "Unit", "Supplier", "Standard Rate", "Category"])
+    for r in _all_resources(db):
+        writer.writerow([
+            r["description"], r["unit"], r["supplier_name"] or "",
+            round(r["standard_rate"] or 0, 2), r["category"] or "",
+        ])
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="resources.csv"'},
+    )
+
+
+@bp.route("/resources/export-xlsx", methods=["GET"])
+def export_resources_xlsx():
+    """Export the resources table as a formatted Excel workbook."""
+    from dct_os.api.dockets import _xlsx_finish, _xlsx_workbook
+
+    db = get_db()
+    wb, ws = _xlsx_workbook(
+        "Resources",
+        ["Description", "Unit", "Supplier", "Standard Rate", "Category"],
+        currency_cols=[4],
+    )
+    for r in _all_resources(db):
+        ws.append([
+            r["description"], r["unit"], r["supplier_name"] or "",
+            round(r["standard_rate"] or 0, 2), r["category"] or "",
+        ])
+    return _xlsx_finish(wb, ws, [32, 8, 24, 14, 16], "resources.xlsx")
+
+
+@bp.route("/resources/import-csv", methods=["POST"])
+def import_resources_csv():
+    """Import resources from CSV. Skips rows that already exist.
+
+    Expected headers (case-insensitive, flexible): Description, Unit,
+    Supplier, Standard Rate, Category. Description and Unit are required.
+    A row is a duplicate when description + supplier match an existing
+    resource (case-insensitive).
+    """
+    db = get_db()
+
+    if "file" in request.files:
+        text = request.files["file"].read().decode("utf-8-sig")
+    else:
+        data = request.get_json(silent=True)
+        if not data or not data.get("csv_text"):
+            return jsonify({"error": "CSV file or csv_text required"}), 400
+        text = data["csv_text"]
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        return jsonify({"error": "CSV has no header row"}), 400
+
+    # Map flexible header names to fields
+    def norm(h):
+        return (h or "").strip().lower().replace("_", " ")
+
+    header_map = {}
+    for h in reader.fieldnames:
+        n = norm(h)
+        if n == "description":
+            header_map["description"] = h
+        elif n == "unit":
+            header_map["unit"] = h
+        elif n in ("supplier", "supplier name"):
+            header_map["supplier_name"] = h
+        elif n in ("standard rate", "rate"):
+            header_map["standard_rate"] = h
+        elif n == "category":
+            header_map["category"] = h
+
+    if "description" not in header_map or "unit" not in header_map:
+        return jsonify({"error": "CSV must have Description and Unit columns"}), 400
+
+    existing = {
+        ((r["description"] or "").strip().lower(),
+         (r["supplier_name"] or "").strip().lower())
+        for r in db.execute(
+            "SELECT description, supplier_name FROM resources"
+        ).fetchall()
+    }
+
+    created = 0
+    skipped = 0
+    rows_read = 0
+    for row in reader:
+        rows_read += 1
+        desc = (row.get(header_map["description"]) or "").strip()
+        unit = (row.get(header_map["unit"]) or "").strip()
+        if not desc or not unit:
+            skipped += 1
+            continue
+        supplier = (row.get(header_map.get("supplier_name", ""), "") or "").strip() or None
+        key = (desc.lower(), (supplier or "").lower())
+        if key in existing:
+            skipped += 1
+            continue
+        try:
+            rate = float(row.get(header_map.get("standard_rate", ""), 0) or 0)
+        except ValueError:
+            rate = 0
+        category = (row.get(header_map.get("category", ""), "") or "").strip() or None
+        db.execute(
+            """INSERT INTO resources (description, unit, supplier_name, standard_rate, category)
+               VALUES (?, ?, ?, ?, ?)""",
+            (desc, unit, supplier, rate, category),
+        )
+        existing.add(key)
+        created += 1
+
+    db.commit()
+    return jsonify({"created": created, "skipped": skipped, "rows_read": rows_read})

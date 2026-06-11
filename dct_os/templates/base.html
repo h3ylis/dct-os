@@ -36,7 +36,7 @@
         <aside id="sidebar">
             <div class="sidebar-header">
                 <h3>Projects</h3>
-                <button class="btn-sm btn-primary" onclick="openProjectDialog()">+ New</button>
+                <button class="icon-btn" onclick="openProjectDialog()" data-tip="New project" data-tip-pos="below">+</button>
             </div>
             <div class="sidebar-filter">
                 <input type="text" id="project-search" placeholder="Search projects..." oninput="filterProjects(this.value)">
@@ -100,6 +100,15 @@
             <div class="panel" id="panel-resources">
                 <div class="panel-toolbar">
                     <button class="btn btn-primary" onclick="openResourceDialog()">+ Add Resource</button>
+                    <div class="dropdown">
+                        <button class="btn" onclick="toggleDropdown(event, 'resources-data-menu')" data-tip="Import and export your rates list" data-tip-pos="left">Data &#9662;</button>
+                        <div class="dropdown-menu" id="resources-data-menu">
+                            <button onclick="exportResourcesCSV()">Export CSV</button>
+                            <button onclick="exportResourcesXLSX()">Export Excel</button>
+                            <button onclick="document.getElementById('resources-import-input').click()">Import CSV</button>
+                        </div>
+                    </div>
+                    <input type="file" id="resources-import-input" accept=".csv" onchange="importResourcesCSV(this)" style="display:none">
                 </div>
                 <div id="resources-grid" class="ag-theme-alpine grid-container"></div>
             </div>

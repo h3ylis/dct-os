@@ -77,6 +77,9 @@ curl -X POST http://localhost:5000/api/projects/1/dockets \
 | PUT | `/api/resources/<id>` | Update. |
 | DELETE | `/api/resources/<id>` | Delete. |
 | GET | `/api/resources/categories` | Distinct category names. |
+| GET | `/api/resources/export-csv` | Export the resources table as CSV. |
+| GET | `/api/resources/export-xlsx` | Export the resources table as a formatted Excel workbook. |
+| POST | `/api/resources/import-csv` | Import resources from CSV (multipart `file` or JSON `csv_text`). Headers: Description, Unit, Supplier, Standard Rate, Category. Duplicates (description + supplier) are skipped. |
 
 ## Dockets
 

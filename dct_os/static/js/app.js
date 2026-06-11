@@ -1847,6 +1847,43 @@ function exportDocketsCSV() {
     window.open('/api/projects/' + activeProjectId + '/dockets/export-csv', '_blank');
 }
 
+function exportResourcesCSV() {
+    window.open('/api/resources/export-csv', '_blank');
+}
+
+function exportResourcesXLSX() {
+    window.open('/api/resources/export-xlsx', '_blank');
+}
+
+async function importResourcesCSV(input) {
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    input.value = '';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const resp = await fetch('/api/resources/import-csv', {
+            method: 'POST',
+            body: formData,
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            toast(err.error || 'Import failed', 'error');
+            return;
+        }
+        const result = await resp.json();
+        const msg = result.created + ' resource(s) imported' +
+            (result.skipped > 0 ? ', ' + result.skipped + ' duplicate(s) skipped' : '');
+        toast(msg, 'success');
+        cachedResources = await apiFetch('/api/resources');
+        if (activePanel === 'resources') loadResources();
+    } catch (e) {
+        toast('Import failed: ' + e.message, 'error');
+    }
+}
+
 async function importDocketsCSV(input) {
     if (!activeProjectId) { toast('Select a project first', 'error'); return; }
     if (!input.files || input.files.length === 0) return;

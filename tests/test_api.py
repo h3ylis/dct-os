@@ -1045,6 +1045,63 @@ def test_export_dockets_xlsx(client):
     assert ws.max_row == 5  # header + 4 line items
 
 
+def test_resources_export_csv(client):
+    resp = client.get("/api/resources/export-csv")
+    assert resp.status_code == 200
+    assert "text/csv" in resp.content_type
+    lines = resp.data.decode("utf-8").strip().split("\n")
+    assert "Description" in lines[0]
+    assert len(lines) > 1  # seed resources present
+
+
+def test_resources_export_xlsx(client):
+    import io as _io
+    from openpyxl import load_workbook
+
+    resp = client.get("/api/resources/export-xlsx")
+    assert resp.status_code == 200
+    assert "spreadsheetml" in resp.content_type
+    wb = load_workbook(_io.BytesIO(resp.data))
+    headers = [c.value for c in wb.active[1]]
+    assert "Standard Rate" in headers
+
+
+def test_resources_import_csv(client):
+    csv_text = (
+        "Description,Unit,Supplier,Standard Rate,Category\n"
+        "Imported Grader 14ft,Hr,Test Plant Co,210,Plant\n"
+        "Imported Spotter,Hr,,72.50,Labour\n"
+    )
+    resp = client.post("/api/resources/import-csv",
+                       json={"csv_text": csv_text},
+                       content_type="application/json")
+    assert resp.status_code == 200
+    result = json.loads(resp.data)
+    assert result["created"] == 2
+    assert result["skipped"] == 0
+
+    # Re-import skips both as duplicates
+    resp = client.post("/api/resources/import-csv",
+                       json={"csv_text": csv_text},
+                       content_type="application/json")
+    result = json.loads(resp.data)
+    assert result["created"] == 0
+    assert result["skipped"] == 2
+
+    # Imported resource is queryable with the right rate
+    resources = json.loads(client.get("/api/resources").data)
+    grader = next(r for r in resources if r["description"] == "Imported Grader 14ft")
+    assert grader["standard_rate"] == 210
+    assert grader["supplier_name"] == "Test Plant Co"
+
+
+def test_resources_import_requires_columns(client):
+    resp = client.post("/api/resources/import-csv",
+                       json={"csv_text": "Name,Price\nThing,5\n"},
+                       content_type="application/json")
+    assert resp.status_code == 400
+
+
 def test_docket_summary_xlsx(client):
     import io as _io
     from openpyxl import load_workbook
