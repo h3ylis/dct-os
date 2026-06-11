@@ -15,13 +15,6 @@
             <span class="brand-name">DCT-OS</span>
             <span class="brand-version">v{{ version }}</span>
         </div>
-        <div id="db-indicator" onclick="openDatabaseDialog()" data-tip="Switch database or open a shared file" data-tip-pos="below">
-            <span class="db-dot" id="db-dot"></span>
-            <span class="db-name" id="db-name">Local</span>
-        </div>
-        <div id="active-project">
-            <span id="active-project-name">Select a project</span>
-        </div>
         <nav id="header-nav">
             <button class="nav-btn" onclick="showPanel('dockets')" id="tab-dockets" data-tip="Source documents entered against work orders and cost codes">Dockets</button>
             <button class="nav-btn" onclick="showPanel('cost-codes')" id="tab-cost-codes" data-tip="Internal budget line items for this project">Cost Codes</button>
@@ -29,8 +22,15 @@
             <button class="nav-btn" onclick="showPanel('purchase-orders')" id="tab-purchase-orders" data-tip="Financial commitments to suppliers with drawdown tracking">Purchase Orders</button>
             <button class="nav-btn" onclick="showPanel('resources')" id="tab-resources" data-tip="Reusable plant, labour, and materials with standard rates">Resources</button>
             <button class="nav-btn" onclick="showPanel('reports')" id="tab-reports" data-tip="Summarise docket spend by supplier for claiming">Reports</button>
-            <button class="help-btn" onclick="openHelpDialog()" data-tip="Help &amp; shortcuts" data-tip-pos="left">?</button>
         </nav>
+        <div id="header-right">
+            <span id="active-project-name"></span>
+            <div id="db-indicator" onclick="openDatabaseDialog()" data-tip="Switch database or open a shared file" data-tip-pos="below">
+                <span class="db-dot" id="db-dot"></span>
+                <span class="db-name" id="db-name">Local</span>
+            </div>
+            <button class="help-btn" onclick="openHelpDialog()" data-tip="Help &amp; shortcuts" data-tip-pos="left">?</button>
+        </div>
     </header>
 
     <div id="app">

@@ -67,7 +67,6 @@ body {
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    margin: 0 12px;
     border-radius: var(--radius);
     cursor: pointer;
     font-size: 12px;
@@ -280,9 +279,13 @@ body {
     flex: 1;
 }
 
-#active-project {
-    flex: 1;
+#header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
     min-width: 0;
+    flex-shrink: 1;
 }
 
 #active-project-name {
@@ -293,6 +296,8 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+#active-project-name:empty { display: none; }
 
 #header-nav {
     display: flex;
