@@ -59,32 +59,32 @@ INSERT INTO po_assignments (purchase_order_id, work_order_id) VALUES
 (8, 7);
 
 -- Resources
-INSERT INTO resources (id, description, unit, supplier_name, standard_rate, category) VALUES
-( 1, '20T Excavator',              'Hr',    'Redgum Civil Pty Ltd',       220.00, 'Plant'),
-( 2, '10T Tipper',                 'Hr',    'Redgum Civil Pty Ltd',       125.00, 'Plant'),
-( 3, 'Grader',                     'Hr',    'Redgum Civil Pty Ltd',       235.00, 'Plant'),
-( 4, 'Roller',                     'Day',   'Tablelands Equipment Hire',  280.00, 'Plant'),
-( 5, 'Watercart',                  'Hr',    'Tablelands Equipment Hire',  160.00, 'Plant'),
-( 6, 'Loader',                     'Hr',    'Redgum Civil Pty Ltd',       185.00, 'Plant'),
-( 7, 'Labour',                     'Hr',    NULL,                          85.00, 'Labour'),
-( 8, 'Plant Operator',             'Hr',    NULL,                          95.00, 'Labour'),
-( 9, 'Supervisor',                 'Hr',    NULL,                         110.00, 'Labour'),
-(10, '2 Person Crew - Weekday',    'Hr',    'Clearway Traffic Services',   95.00, 'Traffic'),
-(11, 'Portable Traffic Light',     'Day',   'Clearway Traffic Services',  180.00, 'Traffic'),
-(12, 'TC Travel',                  'Ea',    'Clearway Traffic Services',  120.00, 'Traffic'),
-(13, 'DGB20 (Delivered)',          'Tonne', 'Ironbark Quarries',           42.00, 'Materials'),
-(14, 'Drainage Rock',              'Tonne', 'Ironbark Quarries',           38.00, 'Materials'),
-(15, 'Select Fill',                'Tonne', 'Ironbark Quarries',           28.00, 'Materials'),
-(16, 'Concrete 32MPa',            'm3',    'Valley Concrete Supply',     275.00, 'Materials'),
-(17, 'Concrete 25MPa',            'm3',    'Valley Concrete Supply',     255.00, 'Materials'),
-(18, 'Environmental Consultant',   'Hr',    'Greenfield Environmental',   145.00, 'Professional'),
-(19, 'Erosion Control',            'LS',    'Greenfield Environmental',  3200.00, 'Environmental'),
-(20, 'Centre Line',                'm',     'Dawson Line Marking',          1.80, 'Line Marking'),
-(21, 'Edge Line',                  'm',     'Dawson Line Marking',          1.50, 'Line Marking'),
-(22, 'Mobilisation',               'LS',    NULL,                        8500.00, 'Preliminaries'),
-(23, '10T Tipper (Blacksoil)',     'Hr',    'Blacksoil Earthmoving',      130.00, 'Plant'),
-(24, '20T Excavator (Blacksoil)',  'Hr',    'Blacksoil Earthmoving',      230.00, 'Plant'),
-(25, '20T Excavator (Hawk)',       'Hr',    'Hawkridge Constructions',    225.00, 'Plant');
+INSERT INTO resources (id, description, details, unit, supplier_name, standard_rate, category) VALUES
+( 1, '20T Excavator',              'Komatsu PC200, GP + mud buckets, wet hire',    'Hr',    'Redgum Civil Pty Ltd',       220.00, 'Plant'),
+( 2, '10T Tipper',                 'Isuzu FVZ tandem, wet hire',                   'Hr',    'Redgum Civil Pty Ltd',       125.00, 'Plant'),
+( 3, 'Grader',                     'Cat 12M, 14ft blade, GPS fitted',              'Hr',    'Redgum Civil Pty Ltd',       235.00, 'Plant'),
+( 4, 'Roller',                     'Ammann 12t smooth drum, padfoot shell avail.', 'Day',   'Tablelands Equipment Hire',  280.00, 'Plant'),
+( 5, 'Watercart',                  '14,000L on Hino 500, dribble bar + cannon',    'Hr',    'Tablelands Equipment Hire',  160.00, 'Plant'),
+( 6, 'Loader',                     'Cat 938, 2.5m3 GP bucket',                     'Hr',    'Redgum Civil Pty Ltd',       185.00, 'Plant'),
+( 7, 'Labour',                     NULL,                                           'Hr',    NULL,                          85.00, 'Labour'),
+( 8, 'Plant Operator',             NULL,                                           'Hr',    NULL,                          95.00, 'Labour'),
+( 9, 'Supervisor',                 NULL,                                           'Hr',    NULL,                         110.00, 'Labour'),
+(10, '2 Person Crew - Weekday',    'Stop/slow, includes signage set',              'Hr',    'Clearway Traffic Services',   95.00, 'Traffic'),
+(11, 'Portable Traffic Light',     'Pair, solar, remote linked',                   'Day',   'Clearway Traffic Services',  180.00, 'Traffic'),
+(12, 'TC Travel',                  NULL,                                           'Ea',    'Clearway Traffic Services',  120.00, 'Traffic'),
+(13, 'DGB20 (Delivered)',          'Delivered to site',                            'Tonne', 'Ironbark Quarries',           42.00, 'Materials'),
+(14, 'Drainage Rock',              '40-70mm clean',                                'Tonne', 'Ironbark Quarries',           38.00, 'Materials'),
+(15, 'Select Fill',                NULL,                                           'Tonne', 'Ironbark Quarries',           28.00, 'Materials'),
+(16, 'Concrete 32MPa',            '20mm agg, 80 slump',                           'm3',    'Valley Concrete Supply',     275.00, 'Materials'),
+(17, 'Concrete 25MPa',            '20mm agg, 80 slump',                           'm3',    'Valley Concrete Supply',     255.00, 'Materials'),
+(18, 'Environmental Consultant',   NULL,                                           'Hr',    'Greenfield Environmental',   145.00, 'Professional'),
+(19, 'Erosion Control',            'Sediment fence + coir logs per SWMP',          'LS',    'Greenfield Environmental',  3200.00, 'Environmental'),
+(20, 'Centre Line',                'Thermoplastic, 100mm',                         'm',     'Dawson Line Marking',          1.80, 'Line Marking'),
+(21, 'Edge Line',                  'Thermoplastic, 100mm',                         'm',     'Dawson Line Marking',          1.50, 'Line Marking'),
+(22, 'Mobilisation',               NULL,                                           'LS',    NULL,                        8500.00, 'Preliminaries'),
+(23, '10T Tipper (Blacksoil)',     'Hino FM tandem, wet hire',                     'Hr',    'Blacksoil Earthmoving',      130.00, 'Plant'),
+(24, '20T Excavator (Blacksoil)',  'Cat 320, tilt hitch + augers, wet hire',       'Hr',    'Blacksoil Earthmoving',      230.00, 'Plant'),
+(25, '20T Excavator (Hawk)',       'Volvo EC220, rubber tracked, long arm',        'Hr',    'Hawkridge Constructions',    225.00, 'Plant');
 
 -- Demo dockets for Warrawong Road.
 -- No source_hash or source_filename — these are manual entries.

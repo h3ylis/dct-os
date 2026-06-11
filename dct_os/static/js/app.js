@@ -434,8 +434,10 @@ async function loadPurchaseOrders() {
 
 function initResourcesGrid() {
     const columnDefs = [
-        { field: 'description', headerName: 'Item', flex: 1, minWidth: 200,
+        { field: 'description', headerName: 'Item', flex: 1, minWidth: 180,
             headerTooltip: 'What the resource is (e.g. 20T Excavator, Plant Operator)' },
+        { field: 'details', headerName: 'Description', flex: 1, minWidth: 200,
+            headerTooltip: 'Make, model, attachments — helps match docket and invoice wording' },
         { field: 'unit', headerName: 'Unit', width: 80,
             headerTooltip: 'Unit of measure (Hr, Day, Tonne, m3, etc.)' },
         { field: 'supplier_name', headerName: 'Supplier', width: 200 },
@@ -758,6 +760,10 @@ function openResourceDialog(existing) {
             <label data-tip="What the resource is (e.g. 20T Excavator, Plant Operator)" data-tip-pos="below">Item *</label>
             <input type="text" id="f-res-desc" value="${esc(e.description || '')}">
         </div>
+        <div class="form-group">
+            <label data-tip="Make, model, attachments — helps match the wording on dockets and invoices" data-tip-pos="below">Description</label>
+            <input type="text" id="f-res-details" value="${esc(e.details || '')}" placeholder="e.g. Cat 314, rubber tracked, long arm">
+        </div>
         <div class="form-row">
             <div class="form-group">
                 <label data-tip="Unit of measure (e.g. Hr, Day, Tonne, m3, Ea)" data-tip-pos="below">Unit *</label>
@@ -783,6 +789,7 @@ function openResourceDialog(existing) {
         save: async () => {
             const body = {
                 description: document.getElementById('f-res-desc').value,
+                details: document.getElementById('f-res-details').value || null,
                 unit: document.getElementById('f-res-unit').value,
                 supplier_name: document.getElementById('f-res-supplier').value || null,
                 standard_rate: parseFloat(document.getElementById('f-res-rate').value) || 0,
@@ -1041,7 +1048,7 @@ function getFilteredResourceOpts(selectedId) {
         if (filtered.length === 0) filtered = cachedResources;
     }
     return filtered
-        .map(r => `<option value="${r.id}"${r.id === selectedId || r.id == selectedId ? ' selected' : ''}>${esc(r.description)}</option>`)
+        .map(r => `<option value="${r.id}"${r.id === selectedId || r.id == selectedId ? ' selected' : ''}${r.details ? ` title="${esc(r.details)}"` : ''}>${esc(r.description)}</option>`)
         .join('');
 }
 

@@ -72,14 +72,14 @@ curl -X POST http://localhost:5000/api/projects/1/dockets \
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/resources` | List all resources. Optional `?category=` filter. |
-| POST | `/api/resources` | Create. Requires `description` and `unit`; optional `supplier_name`, `standard_rate`, `category`. |
+| POST | `/api/resources` | Create. Requires `description` (the item name) and `unit`; optional `details`, `supplier_name`, `standard_rate`, `category`. |
 | GET | `/api/resources/<id>` | Get one. |
 | PUT | `/api/resources/<id>` | Update. |
 | DELETE | `/api/resources/<id>` | Delete. |
 | GET | `/api/resources/categories` | Distinct category names. |
 | GET | `/api/resources/export-csv` | Export the resources table as CSV. |
 | GET | `/api/resources/export-xlsx` | Export the resources table as a formatted Excel workbook. |
-| POST | `/api/resources/import-csv` | Import resources from CSV (multipart `file` or JSON `csv_text`). Headers: Item (or Description), Unit, Supplier, Standard Rate, Category. Duplicates (item + supplier) are skipped. |
+| POST | `/api/resources/import-csv` | Import resources from CSV (multipart `file` or JSON `csv_text`). Headers: Item, Description, Unit, Supplier, Standard Rate, Category. With an Item column, Description is the detail field; a Description-only CSV (legacy) treats it as the item name. Duplicates (item + supplier) are skipped. |
 
 ## Dockets
 

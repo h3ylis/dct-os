@@ -40,10 +40,11 @@ def create_resource():
     if not data or not data.get("description") or not data.get("unit"):
         return jsonify({"error": "description and unit are required"}), 400
     cur = db.execute(
-        """INSERT INTO resources (description, unit, supplier_name, standard_rate, category)
-           VALUES (?, ?, ?, ?, ?)""",
+        """INSERT INTO resources (description, details, unit, supplier_name, standard_rate, category)
+           VALUES (?, ?, ?, ?, ?, ?)""",
         (
             data["description"],
+            data.get("details"),
             data["unit"],
             data.get("supplier_name"),
             data.get("standard_rate", 0),
@@ -67,7 +68,7 @@ def update_resource(resource_id):
     if existing is None:
         return jsonify({"error": "Resource not found"}), 404
 
-    fields = ["description", "unit", "supplier_name", "standard_rate", "category"]
+    fields = ["description", "details", "unit", "supplier_name", "standard_rate", "category"]
     updates = {f: data[f] for f in fields if f in data}
     if not updates:
         return jsonify({"error": "No valid fields to update"}), 400
@@ -111,7 +112,7 @@ def list_categories():
 
 def _all_resources(db):
     return db.execute(
-        "SELECT description, unit, supplier_name, standard_rate, category "
+        "SELECT description, details, unit, supplier_name, standard_rate, category "
         "FROM resources ORDER BY category, description"
     ).fetchall()
 
@@ -122,10 +123,10 @@ def export_resources_csv():
     db = get_db()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Item", "Unit", "Supplier", "Standard Rate", "Category"])
+    writer.writerow(["Item", "Description", "Unit", "Supplier", "Standard Rate", "Category"])
     for r in _all_resources(db):
         writer.writerow([
-            r["description"], r["unit"], r["supplier_name"] or "",
+            r["description"], r["details"] or "", r["unit"], r["supplier_name"] or "",
             round(r["standard_rate"] or 0, 2), r["category"] or "",
         ])
     return Response(
@@ -143,15 +144,15 @@ def export_resources_xlsx():
     db = get_db()
     wb, ws = _xlsx_workbook(
         "Resources",
-        ["Item", "Unit", "Supplier", "Standard Rate", "Category"],
-        currency_cols=[4],
+        ["Item", "Description", "Unit", "Supplier", "Standard Rate", "Category"],
+        currency_cols=[5],
     )
     for r in _all_resources(db):
         ws.append([
-            r["description"], r["unit"], r["supplier_name"] or "",
+            r["description"], r["details"] or "", r["unit"], r["supplier_name"] or "",
             round(r["standard_rate"] or 0, 2), r["category"] or "",
         ])
-    return _xlsx_finish(wb, ws, [32, 8, 24, 14, 16], "resources.xlsx")
+    return _xlsx_finish(wb, ws, [28, 34, 8, 24, 14, 16], "resources.xlsx")
 
 
 @bp.route("/resources/import-csv", methods=["POST"])
@@ -181,11 +182,19 @@ def import_resources_csv():
     def norm(h):
         return (h or "").strip().lower().replace("_", " ")
 
+    normed = {norm(h): h for h in reader.fieldnames}
+    has_item = "item" in normed
+
     header_map = {}
-    for h in reader.fieldnames:
-        n = norm(h)
-        if n in ("item", "description"):
+    for n, h in normed.items():
+        if n == "item":
             header_map["description"] = h
+        elif n == "description":
+            # With an Item column present, Description is the detail field;
+            # without one (legacy exports), Description is the item name.
+            header_map["details" if has_item else "description"] = h
+        elif n in ("details", "notes"):
+            header_map["details"] = h
         elif n == "unit":
             header_map["unit"] = h
         elif n in ("supplier", "supplier name"):
@@ -226,10 +235,11 @@ def import_resources_csv():
         except ValueError:
             rate = 0
         category = (row.get(header_map.get("category", ""), "") or "").strip() or None
+        details = (row.get(header_map.get("details", ""), "") or "").strip() or None
         db.execute(
-            """INSERT INTO resources (description, unit, supplier_name, standard_rate, category)
-               VALUES (?, ?, ?, ?, ?)""",
-            (desc, unit, supplier, rate, category),
+            """INSERT INTO resources (description, details, unit, supplier_name, standard_rate, category)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (desc, details, unit, supplier, rate, category),
         )
         existing.add(key)
         created += 1

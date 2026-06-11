@@ -1095,6 +1095,57 @@ def test_resources_import_csv(client):
     assert grader["supplier_name"] == "Test Plant Co"
 
 
+def test_resource_details_roundtrip(client):
+    """Item + Description split: details field saves, updates, and exports."""
+    res = json.loads(client.post("/api/resources", json={
+        "description": "Excavator 14T", "unit": "Hr",
+        "details": "Cat 314, rubber tracked, long arm",
+    }, content_type="application/json").data)
+    assert res["details"] == "Cat 314, rubber tracked, long arm"
+
+    updated = json.loads(client.put(f"/api/resources/{res['id']}", json={
+        "details": "Cat 314, steel tracked",
+    }, content_type="application/json").data)
+    assert updated["details"] == "Cat 314, steel tracked"
+    assert updated["description"] == "Excavator 14T"
+
+    # Export carries both columns
+    text = client.get("/api/resources/export-csv").data.decode("utf-8")
+    header = text.strip().split("\n")[0]
+    assert "Item" in header and "Description" in header
+    assert "Cat 314, steel tracked" in text
+
+
+def test_resources_import_item_description_split(client):
+    """With an Item column, Description maps to the details field."""
+    csv_text = (
+        "Item,Description,Unit,Supplier,Standard Rate,Category\n"
+        "Dozer D6,Cat D6 XE with slope assist,Hr,Test Plant Co,310,Plant\n"
+    )
+    resp = client.post("/api/resources/import-csv",
+                       json={"csv_text": csv_text},
+                       content_type="application/json")
+    assert json.loads(resp.data)["created"] == 1
+    resources = json.loads(client.get("/api/resources").data)
+    dozer = next(r for r in resources if r["description"] == "Dozer D6")
+    assert dozer["details"] == "Cat D6 XE with slope assist"
+
+
+def test_resources_import_legacy_description_only(client):
+    """Without an Item column, Description is the item name (old exports)."""
+    csv_text = (
+        "Description,Unit,Standard Rate\n"
+        "Legacy Pump,Day,95\n"
+    )
+    resp = client.post("/api/resources/import-csv",
+                       json={"csv_text": csv_text},
+                       content_type="application/json")
+    assert json.loads(resp.data)["created"] == 1
+    resources = json.loads(client.get("/api/resources").data)
+    pump = next(r for r in resources if r["description"] == "Legacy Pump")
+    assert pump["details"] is None
+
+
 def test_resources_import_requires_columns(client):
     resp = client.post("/api/resources/import-csv",
                        json={"csv_text": "Name,Price\nThing,5\n"},

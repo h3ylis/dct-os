@@ -23,6 +23,14 @@ All notable changes to DCT-OS will be documented in this file.
   rotating backups (last 7) in a `backups/` folder next to your database.
 - **Excel export.** Dockets and the Docket Summary Report now export as
   formatted `.xlsx` workbooks alongside CSV.
+- **Resources import/export.** Bring your existing rates list straight in:
+  the Resources tab imports CSV (flexible headers, duplicates skipped) and
+  exports CSV or Excel.
+- **Item + Description on resources.** A resource now has an Item (what it
+  is — "Excavator 14T") and an optional Description (the detail — "Cat 314,
+  rubber tracked, long arm") to help match the wording on dockets and
+  invoices that never quite agrees. Existing databases migrate
+  automatically; old CSV exports still import.
 
 ### Changed
 
