@@ -134,7 +134,8 @@ async function selectProject(id) {
     activeProjectId = id;
     const project = allProjects.find(p => p.id === id);
     if (project) {
-        document.getElementById('active-project-name').textContent = project.name;
+        const apn = document.getElementById('active-project-name');
+        if (apn) apn.textContent = project.name;
     }
     renderProjectList();
 
@@ -590,7 +591,6 @@ function openProjectDialog(existing) {
         ctx.onDelete = async () => {
             await apiRequest('DELETE', `/api/projects/${existing.id}`);
             activeProjectId = null;
-            document.getElementById('active-project-name').textContent = '';
             showPanel('empty');
             await loadProjects();
         };
@@ -1949,6 +1949,20 @@ function openHelpDialog() {
     // Hide the save button for help dialog
     document.getElementById('modal-save').style.display = 'none';
 }
+
+// --- Dropdown menus ---
+
+function toggleDropdown(event, menuId) {
+    event.stopPropagation();
+    const menu = document.getElementById(menuId);
+    const wasOpen = menu.classList.contains('open');
+    document.querySelectorAll('.dropdown-menu.open').forEach(m => m.classList.remove('open'));
+    if (!wasOpen) menu.classList.add('open');
+}
+
+document.addEventListener('click', () => {
+    document.querySelectorAll('.dropdown-menu.open').forEach(m => m.classList.remove('open'));
+});
 
 // --- Keyboard shortcuts ---
 

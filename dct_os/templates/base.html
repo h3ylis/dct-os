@@ -24,7 +24,6 @@
             <button class="nav-btn" onclick="showPanel('reports')" id="tab-reports" data-tip="Summarise docket spend by supplier for claiming">Reports</button>
         </nav>
         <div id="header-right">
-            <span id="active-project-name"></span>
             <div id="db-indicator" onclick="openDatabaseDialog()" data-tip="Switch database or open a shared file" data-tip-pos="below">
                 <span class="db-dot" id="db-dot"></span>
                 <span class="db-name" id="db-name">Local</span>
@@ -52,73 +51,60 @@
         <main id="main">
             <div class="panel active" id="panel-dockets">
                 <div class="panel-toolbar">
-                    <h2>Dockets</h2>
-                    <div class="toolbar-actions">
-                        <button class="btn" onclick="exportDocketsCSV()" data-tip="Export all dockets as CSV (one row per line item)" data-tip-pos="left">Export CSV</button>
-                        <button class="btn" onclick="exportDocketsXLSX()" data-tip="Export all dockets as a formatted Excel workbook" data-tip-pos="left">Export Excel</button>
-                        <button class="btn" onclick="document.getElementById('csv-import-input').click()" data-tip="Import dockets from a CSV file" data-tip-pos="left">Import CSV</button>
-                        <input type="file" id="csv-import-input" accept=".csv" onchange="importDocketsCSV(this)" style="display:none">
-                        <button class="btn btn-primary" onclick="openDocketDialog()" data-tip="Enter a new source document with header and line items" data-tip-pos="left">+ Add Docket</button>
+                    <div class="stats-bar" id="stats-bar">
+                        <div class="stat" data-tip="Number of docket headers entered for this project" data-tip-pos="below"><span class="stat-label">Total Dockets</span><span class="stat-value" id="stat-count">0</span></div>
+                        <div class="stat" data-tip="Sum of all docket line amounts" data-tip-pos="below"><span class="stat-label">Total Spend</span><span class="stat-value" id="stat-spend">$0</span></div>
+                        <div class="stat" data-tip="Distinct suppliers across all dockets and purchase orders" data-tip-pos="below"><span class="stat-label">Suppliers</span><span class="stat-value" id="stat-suppliers">0</span></div>
                     </div>
-                </div>
-                <div class="stats-bar" id="stats-bar">
-                    <div class="stat" data-tip="Number of docket headers entered for this project" data-tip-pos="below"><span class="stat-label">Total Dockets</span><span class="stat-value" id="stat-count">0</span></div>
-                    <div class="stat" data-tip="Sum of all docket line amounts" data-tip-pos="below"><span class="stat-label">Total Spend</span><span class="stat-value" id="stat-spend">$0</span></div>
-                    <div class="stat" data-tip="Distinct suppliers across all dockets and purchase orders" data-tip-pos="below"><span class="stat-label">Suppliers</span><span class="stat-value" id="stat-suppliers">0</span></div>
+                    <button class="btn btn-primary" onclick="openDocketDialog()" data-tip="Enter a new source document with header and line items" data-tip-pos="below">+ Add Docket</button>
+                    <div class="dropdown">
+                        <button class="btn" onclick="toggleDropdown(event, 'dockets-data-menu')" data-tip="Import and export" data-tip-pos="left">Data &#9662;</button>
+                        <div class="dropdown-menu" id="dockets-data-menu">
+                            <button onclick="exportDocketsCSV()">Export CSV</button>
+                            <button onclick="exportDocketsXLSX()">Export Excel</button>
+                            <button onclick="document.getElementById('csv-import-input').click()">Import CSV</button>
+                        </div>
+                    </div>
+                    <input type="file" id="csv-import-input" accept=".csv" onchange="importDocketsCSV(this)" style="display:none">
                 </div>
                 <div id="dockets-grid" class="ag-theme-alpine grid-container"></div>
             </div>
 
             <div class="panel" id="panel-cost-codes">
                 <div class="panel-toolbar">
-                    <h2>Cost Codes</h2>
-                    <div class="toolbar-actions">
-                        <button class="btn btn-primary" onclick="openCostCodeDialog()">+ Add Cost Code</button>
+                    <div class="stats-bar" id="cc-stats-bar">
+                        <div class="stat" data-tip="Total budget across all cost codes" data-tip-pos="below"><span class="stat-label">Total Budget</span><span class="stat-value" id="cc-stat-budget">$0</span></div>
+                        <div class="stat" data-tip="Total actual spend from docket lines" data-tip-pos="below"><span class="stat-label">Total Actual</span><span class="stat-value" id="cc-stat-actual">$0</span></div>
+                        <div class="stat" data-tip="Remaining budget (budget minus actual)" data-tip-pos="below"><span class="stat-label">Remaining</span><span class="stat-value" id="cc-stat-remaining">$0</span></div>
+                        <div class="stat" data-tip="Overall budget utilisation" data-tip-pos="below"><span class="stat-label">Burn Rate</span><span class="stat-value" id="cc-stat-burn">0%</span></div>
                     </div>
-                </div>
-                <div class="stats-bar" id="cc-stats-bar">
-                    <div class="stat" data-tip="Total budget across all cost codes" data-tip-pos="below"><span class="stat-label">Total Budget</span><span class="stat-value" id="cc-stat-budget">$0</span></div>
-                    <div class="stat" data-tip="Total actual spend from docket lines" data-tip-pos="below"><span class="stat-label">Total Actual</span><span class="stat-value" id="cc-stat-actual">$0</span></div>
-                    <div class="stat" data-tip="Remaining budget (budget minus actual)" data-tip-pos="below"><span class="stat-label">Remaining</span><span class="stat-value" id="cc-stat-remaining">$0</span></div>
-                    <div class="stat" data-tip="Overall budget utilisation" data-tip-pos="below"><span class="stat-label">Burn Rate</span><span class="stat-value" id="cc-stat-burn">0%</span></div>
+                    <button class="btn btn-primary" onclick="openCostCodeDialog()">+ Add Cost Code</button>
                 </div>
                 <div id="cost-codes-grid" class="ag-theme-alpine grid-container"></div>
             </div>
 
             <div class="panel" id="panel-work-orders">
                 <div class="panel-toolbar">
-                    <h2>Work Orders</h2>
-                    <div class="toolbar-actions">
-                        <button class="btn btn-primary" onclick="openWorkOrderDialog()">+ Add Work Order</button>
-                    </div>
+                    <button class="btn btn-primary" onclick="openWorkOrderDialog()">+ Add Work Order</button>
                 </div>
                 <div id="work-orders-grid" class="ag-theme-alpine grid-container"></div>
             </div>
 
             <div class="panel" id="panel-purchase-orders">
                 <div class="panel-toolbar">
-                    <h2>Purchase Orders</h2>
-                    <div class="toolbar-actions">
-                        <button class="btn btn-primary" onclick="openPurchaseOrderDialog()">+ Add Purchase Order</button>
-                    </div>
+                    <button class="btn btn-primary" onclick="openPurchaseOrderDialog()">+ Add Purchase Order</button>
                 </div>
                 <div id="purchase-orders-grid" class="ag-theme-alpine grid-container"></div>
             </div>
 
             <div class="panel" id="panel-resources">
                 <div class="panel-toolbar">
-                    <h2>Resources</h2>
-                    <div class="toolbar-actions">
-                        <button class="btn btn-primary" onclick="openResourceDialog()">+ Add Resource</button>
-                    </div>
+                    <button class="btn btn-primary" onclick="openResourceDialog()">+ Add Resource</button>
                 </div>
                 <div id="resources-grid" class="ag-theme-alpine grid-container"></div>
             </div>
 
             <div class="panel" id="panel-reports">
-                <div class="panel-toolbar">
-                    <h2>Docket Summary Report</h2>
-                </div>
                 <div class="report-filter-bar" id="report-filter-bar">
                     <div class="filter-field">
                         <label>Supplier</label>
