@@ -56,7 +56,7 @@ def database_info():
 def database_switch():
     """Switch to a different database file."""
     from dct_os.database_manager import (
-        check_lock, acquire_lock, release_lock, add_recent,
+        check_lock, acquire_lock, release_lock, add_recent, rotate_backup,
     )
     from dct_os.db import close_db, init_db_for_path
 
@@ -85,6 +85,7 @@ def database_switch():
     init_db_for_path(current_app, new_path)
     acquire_lock(new_path)
     add_recent(new_path)
+    rotate_backup(new_path)
 
     return jsonify({
         "switched": True,
@@ -133,6 +134,40 @@ def database_create():
         "created": True,
         "path": new_path,
     }), 201
+
+
+@api.route("/backup", methods=["GET"])
+def backup_download():
+    """Download a consistent snapshot of the current database."""
+    import sqlite3
+    import tempfile
+    from datetime import datetime
+    from flask import send_file
+
+    db_path = current_app.config["DATABASE"]
+    if not Path(db_path).exists():
+        return jsonify({"error": "Database file not found"}), 404
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    try:
+        src = sqlite3.connect(db_path)
+        dst = sqlite3.connect(tmp.name)
+        with dst:
+            src.backup(dst)
+        dst.close()
+        src.close()
+    except Exception as e:
+        return jsonify({"error": f"Backup failed: {e}"}), 500
+
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    download_name = f"{Path(db_path).stem}-backup-{stamp}.db"
+    return send_file(
+        tmp.name,
+        as_attachment=True,
+        download_name=download_name,
+        mimetype="application/octet-stream",
+    )
 
 
 @api.route("/browse", methods=["GET"])

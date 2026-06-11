@@ -2,6 +2,34 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
+## [1.0.0] - 2026-06-12
+
+### Added
+
+- **Rate review — the rate feedback loop.** Pricing knowledge enters DCT-OS
+  where it enters real life: at invoice review. Rates in the Docket Summary
+  Report are now editable in place. If the invoice agrees, do nothing. Type
+  a higher rate and the dockets in the report re-value and the resource's
+  standard rate updates (with Undo). Type a lower rate and choose: one-off
+  for this claim, or update the standard rate too. Type a rate on a
+  free-text line and DCT-OS offers to add it to your resources — pre-filled
+  and one click.
+- **Quantities-only docket entry.** The rate column is gone from the docket
+  entry form — site paperwork doesn't carry prices, so you don't type any.
+  Lines are valued automatically at the resource's standard rate as an
+  estimate until invoice review confirms them.
+- **Backups.** A Backup button in the database dialog downloads a
+  timestamped snapshot of the current database. DCT-OS also keeps automatic
+  rotating backups (last 7) in a `backups/` folder next to your database.
+- **Excel export.** Dockets and the Docket Summary Report now export as
+  formatted `.xlsx` workbooks alongside CSV.
+
+### Changed
+
+- Summary report rows are now split by exact rate (no more averaged rates)
+  so each row can be reviewed against the invoice independently.
+- GitHub Actions workflows updated to current action versions.
+
 ## [0.3.0] - 2026-06-11
 
 ### Added

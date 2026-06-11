@@ -101,8 +101,11 @@ Dockets are header + lines: the header carries date, supplier, docket number, an
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/projects/<id>/docket-summary` | Supplier summary. Params: `supplier` (required), then either `date_from`/`date_to` or `docket_ids`, plus `group=category` for category grouping. |
+| GET | `/api/projects/<id>/docket-summary` | Supplier summary. Params: `supplier` (required), then either `date_from`/`date_to` or `docket_ids`. Rows are split by rate and include `line_ids` for the rate-review flow. |
 | GET | `/api/projects/<id>/docket-summary/csv` | Same report as CSV download. |
+| GET | `/api/projects/<id>/docket-summary/xlsx` | Same report as a formatted Excel workbook. |
+| GET | `/api/projects/<id>/dockets/export-xlsx` | All dockets as a formatted Excel workbook (one row per line). |
+| POST | `/api/projects/<id>/rerate` | Rate review: re-rate docket lines. Body: `{"line_ids": [...], "new_rate": N, "resource_id": N\|null, "update_standard": bool, "add_resource": {...}\|null}`. Returns previous values for undo. |
 
 ## Database Management
 
@@ -118,6 +121,7 @@ Dockets are header + lines: the header carries date, supplier, docket number, an
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/version` | Installed version, plus `update_available` when PyPI has a newer release. |
+| GET | `/api/backup` | Download a consistent snapshot of the current database (timestamped filename). |
 
 ## Errors
 

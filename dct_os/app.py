@@ -26,7 +26,7 @@ def create_app(test_config=None):
 
     if test_config is None:
         # Check config for last-used database, fall back to default
-        from dct_os.database_manager import load_config, acquire_lock
+        from dct_os.database_manager import load_config, acquire_lock, rotate_backup
         config = load_config()
         last_db = config.get("last_database")
 
@@ -38,6 +38,7 @@ def create_app(test_config=None):
 
         app.config["DATABASE"] = str(db_path.resolve())
         acquire_lock(app.config["DATABASE"])
+        rotate_backup(app.config["DATABASE"])
     else:
         app.config.update(test_config)
 

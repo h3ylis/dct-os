@@ -1256,6 +1256,88 @@ body {
     background: var(--primary-light);
 }
 
+/* Rate review — editable rate cells in the summary report */
+.rate-cell {
+    width: 92px;
+    padding: 3px 6px;
+    text-align: right;
+    font-size: 13px;
+    font-family: inherit;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: transparent;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.rate-cell:hover {
+    border-color: var(--border);
+    background: var(--surface);
+}
+
+.rate-cell:focus {
+    border-color: var(--primary);
+    background: var(--surface);
+    outline: none;
+}
+
+.rate-cell.rate-edited {
+    background: #fef3c7;
+    border-color: var(--warning);
+}
+
+.rpt-rate-counter {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #92400e;
+    background: #fef3c7;
+    border: 1px solid var(--warning);
+    border-radius: var(--radius);
+    padding: 6px 12px;
+    display: inline-block;
+}
+
+#rate-gate-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+}
+
+.rate-gate {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+    padding: 20px 24px;
+    max-width: 440px;
+    font-size: 14px;
+}
+
+.rate-gate p { margin: 0 0 16px; }
+
+.rate-gate-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.toast-undo {
+    margin-left: 10px;
+    padding: 2px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: var(--radius);
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.toast-undo:hover { background: rgba(255, 255, 255, 0.15); }
+
 .report-header {
     margin-bottom: 16px;
     padding-bottom: 12px;

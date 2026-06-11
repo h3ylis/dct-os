@@ -1,10 +1,12 @@
-"""Database manager — lock files, config persistence, file browsing."""
+"""Database manager — lock files, config persistence, file browsing, backups."""
 
 import atexit
 import json
 import os
 import platform
 import socket
+import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -174,6 +176,66 @@ def _cleanup_lock():
 
 
 atexit.register(_cleanup_lock)
+
+
+# ---------------------------------------------------------------------------
+# Automatic rotating backups
+# ---------------------------------------------------------------------------
+
+def rotate_backup(db_path, keep=7, min_interval_hours=12):
+    """Create a timestamped backup copy of the database, keeping the last N.
+
+    Backups go to a backups/ folder next to the database file. Uses the
+    SQLite backup API so the copy is consistent even if the file is open.
+    Skipped when the newest backup is fresher than min_interval_hours, so
+    frequent restarts don't churn the rotation. Best-effort: any failure
+    (read-only share, permissions) silently skips — backups must never
+    block startup.
+    """
+    src = Path(db_path)
+    if not src.exists() or src.stat().st_size == 0:
+        return None
+
+    backup_dir = src.parent / "backups"
+    try:
+        backup_dir.mkdir(exist_ok=True)
+    except Exception:
+        return None
+
+    pattern = src.stem + "-*.db"
+    try:
+        existing = sorted(backup_dir.glob(pattern))
+        if existing:
+            age = time.time() - existing[-1].stat().st_mtime
+            if age < min_interval_hours * 3600:
+                return None
+    except Exception:
+        return None
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = backup_dir / f"{src.stem}-{stamp}.db"
+    try:
+        src_conn = sqlite3.connect(str(src))
+        dst_conn = sqlite3.connect(str(dest))
+        with dst_conn:
+            src_conn.backup(dst_conn)
+        dst_conn.close()
+        src_conn.close()
+    except Exception:
+        try:
+            dest.unlink()
+        except Exception:
+            pass
+        return None
+
+    # Prune oldest beyond the keep count
+    try:
+        for old in sorted(backup_dir.glob(pattern))[:-keep]:
+            old.unlink()
+    except Exception:
+        pass
+
+    return str(dest)
 
 
 # ---------------------------------------------------------------------------

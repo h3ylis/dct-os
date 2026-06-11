@@ -11,8 +11,10 @@ DCT-OS is a cost tracking platform built for civil engineering — project manag
 - PDF-assisted manual entry (PDF viewer + form side-by-side)
 - Project summary, cost code breakdown, and supplier spend reports
 - Cost code budget tracking with burn-rate visuals
+- Rate review at invoice time — confirm rates in the summary report and your resource rates stay current automatically
 - Shared databases — open a `.db` file on a network drive, SharePoint, or OneDrive, and see who else has it open
-- CSV export and import
+- One-click backups, plus automatic rotating backups
+- CSV and Excel export, CSV import
 - REST API for all operations ([documented](docs/API.md))
 - `pip install dct-os` — runs on Windows, macOS, and Linux
 

@@ -55,6 +55,7 @@
                     <h2>Dockets</h2>
                     <div class="toolbar-actions">
                         <button class="btn" onclick="exportDocketsCSV()" data-tip="Export all dockets as CSV (one row per line item)" data-tip-pos="left">Export CSV</button>
+                        <button class="btn" onclick="exportDocketsXLSX()" data-tip="Export all dockets as a formatted Excel workbook" data-tip-pos="left">Export Excel</button>
                         <button class="btn" onclick="document.getElementById('csv-import-input').click()" data-tip="Import dockets from a CSV file" data-tip-pos="left">Import CSV</button>
                         <input type="file" id="csv-import-input" accept=".csv" onchange="importDocketsCSV(this)" style="display:none">
                         <button class="btn btn-primary" onclick="openDocketDialog()" data-tip="Enter a new source document with header and line items" data-tip-pos="left">+ Add Docket</button>
@@ -141,6 +142,7 @@
                     <div class="filter-actions">
                         <button class="btn btn-primary" onclick="runDocketSummary()">Generate</button>
                         <button class="btn" id="rpt-csv-btn" onclick="exportSummaryCSV()" style="display:none">Export CSV</button>
+                        <button class="btn" id="rpt-xlsx-btn" onclick="exportSummaryXLSX()" style="display:none">Export Excel</button>
                     </div>
                 </div>
                 <div class="rpt-docket-picker" id="rpt-docket-picker" style="display:none">

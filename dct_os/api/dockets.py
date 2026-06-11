@@ -297,24 +297,30 @@ def _build_summary_filter(project_id, args):
 
 
 def _run_summary_query(db, where, params):
-    """Execute the summary GROUP BY query."""
+    """Execute the summary GROUP BY query.
+
+    Rows are split by rate (not averaged) so the report can show — and edit —
+    the exact rate carried by the underlying docket lines. line_ids lets the
+    rate-review flow re-rate exactly the lines behind a row.
+    """
     return db.execute(
         f"""SELECT
                 COALESCE(r.category, 'Uncategorised') AS category,
                 COALESCE(r.description, dl.description, 'Unknown') AS resource_desc,
+                dl.resource_id,
+                r.standard_rate,
                 dl.unit,
+                dl.rate,
                 SUM(dl.qty) AS total_qty,
-                CASE WHEN SUM(dl.qty) > 0
-                     THEN SUM(dl.amount) / SUM(dl.qty)
-                     ELSE 0 END AS avg_rate,
                 SUM(dl.amount) AS subtotal,
-                COUNT(DISTINCT dh.id) AS docket_count
+                COUNT(DISTINCT dh.id) AS docket_count,
+                GROUP_CONCAT(dl.id) AS line_ids
             FROM docket_lines dl
             JOIN docket_headers dh ON dl.docket_id = dh.id
             LEFT JOIN resources r ON dl.resource_id = r.id
             WHERE {where}
-            GROUP BY category, resource_desc, dl.unit
-            ORDER BY category, resource_desc""",
+            GROUP BY category, resource_desc, dl.resource_id, dl.unit, dl.rate
+            ORDER BY category, resource_desc, dl.rate""",
         params,
     ).fetchall()
 
@@ -364,12 +370,12 @@ def docket_summary_csv(project_id):
     writer = csv.writer(output)
     writer.writerow([
         "Category", "Resource", "Unit", "Total Qty",
-        "Avg Rate", "Subtotal", "Docket Count",
+        "Rate", "Subtotal", "Docket Count",
     ])
     for r in rows:
         writer.writerow([
             r["category"], r["resource_desc"], r["unit"],
-            r["total_qty"], round(r["avg_rate"], 2),
+            r["total_qty"], round(r["rate"] or 0, 2),
             round(r["subtotal"], 2), r["docket_count"],
         ])
 
@@ -380,6 +386,108 @@ def docket_summary_csv(project_id):
         mimetype="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@bp.route("/projects/<int:project_id>/rerate", methods=["POST"])
+def rerate_lines(project_id):
+    """Re-rate docket lines from the summary report rate-review flow.
+
+    Body:
+        line_ids: [int]          — the lines behind the edited report row
+        new_rate: float          — the rate read off the invoice
+        resource_id: int|null    — set with update_standard to also update
+                                   the resource's standard rate
+        update_standard: bool
+        add_resource: {description, unit, supplier_name, category} | null
+                                 — create a resource from a free-text row and
+                                   link these lines to it
+
+    Returns previous values so the client can offer Undo.
+    """
+    db = get_db()
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    line_ids = data.get("line_ids") or []
+    if not isinstance(line_ids, list) or not all(
+        isinstance(i, int) for i in line_ids
+    ) or not line_ids:
+        return jsonify({"error": "line_ids must be a non-empty list of ids"}), 400
+
+    try:
+        new_rate = float(data.get("new_rate"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "new_rate must be a number"}), 400
+    if new_rate < 0:
+        return jsonify({"error": "new_rate cannot be negative"}), 400
+
+    # Only touch lines that belong to this project
+    placeholders = ",".join("?" * len(line_ids))
+    lines = db.execute(
+        f"""SELECT dl.id, dl.rate FROM docket_lines dl
+            JOIN docket_headers dh ON dl.docket_id = dh.id
+            WHERE dl.id IN ({placeholders}) AND dh.project_id = ?""",
+        (*line_ids, project_id),
+    ).fetchall()
+    if len(lines) != len(line_ids):
+        return jsonify({"error": "One or more lines not found in this project"}), 404
+
+    old_rate = lines[0]["rate"]
+
+    db.execute(
+        f"""UPDATE docket_lines
+            SET rate = ?, amount = ROUND(qty * ?, 2)
+            WHERE id IN ({placeholders})""",
+        (new_rate, new_rate, *line_ids),
+    )
+
+    result = {
+        "updated_lines": len(line_ids),
+        "new_rate": new_rate,
+        "old_rate": old_rate,
+        "standard_updated": False,
+        "old_standard_rate": None,
+        "new_resource_id": None,
+    }
+
+    # Free-text row promoted to a resource
+    add_resource = data.get("add_resource")
+    if add_resource and add_resource.get("description") and add_resource.get("unit"):
+        cur = db.execute(
+            """INSERT INTO resources (description, unit, supplier_name, standard_rate, category)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                add_resource["description"],
+                add_resource["unit"],
+                add_resource.get("supplier_name"),
+                new_rate,
+                add_resource.get("category"),
+            ),
+        )
+        new_resource_id = cur.lastrowid
+        db.execute(
+            f"UPDATE docket_lines SET resource_id = ? WHERE id IN ({placeholders})",
+            (new_resource_id, *line_ids),
+        )
+        result["new_resource_id"] = new_resource_id
+
+    # Update the resource's standard rate
+    elif data.get("update_standard") and data.get("resource_id"):
+        row = db.execute(
+            "SELECT standard_rate FROM resources WHERE id = ?",
+            (data["resource_id"],),
+        ).fetchone()
+        if row is not None:
+            result["old_standard_rate"] = row["standard_rate"]
+            db.execute(
+                "UPDATE resources SET standard_rate = ?, updated_at = datetime('now') WHERE id = ?",
+                (new_rate, data["resource_id"]),
+            )
+            result["standard_updated"] = True
+
+    db.commit()
+    return jsonify(result)
 
 
 @bp.route("/projects/<int:project_id>/dockets/by-supplier", methods=["GET"])
@@ -534,6 +642,137 @@ def export_dockets_csv(project_id):
         output.getvalue(),
         mimetype="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _xlsx_workbook(title, headers, currency_cols):
+    """Create a styled openpyxl workbook with a header row. Returns (wb, ws)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title[:31]  # Excel sheet name limit
+
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+    ws.freeze_panes = "A2"
+    ws._dct_currency_cols = currency_cols
+    return wb, ws
+
+
+def _xlsx_finish(wb, ws, col_widths, filename):
+    """Apply widths + currency formats and return the download response."""
+    from openpyxl.utils import get_column_letter
+
+    for i, width in enumerate(col_widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = width
+    for col in getattr(ws, "_dct_currency_cols", []):
+        letter = get_column_letter(col)
+        for row in range(2, ws.max_row + 1):
+            ws[f"{letter}{row}"].number_format = "#,##0.00"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        buf.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@bp.route("/projects/<int:project_id>/dockets/export-xlsx", methods=["GET"])
+def export_dockets_xlsx(project_id):
+    """Export all dockets as a formatted Excel workbook (one row per line)."""
+    db = get_db()
+    rows = db.execute(
+        """SELECT dh.date, dh.docket_number, dh.supplier_name,
+                  po.number AS po_number,
+                  wo.number AS wo_number,
+                  cc.code AS cost_code,
+                  r.description AS resource_description,
+                  dl.description, dl.qty, dl.unit, dl.rate, dl.amount,
+                  dh.notes, dh.claimed_reference
+           FROM docket_headers dh
+           LEFT JOIN purchase_orders po ON dh.purchase_order_id = po.id
+           JOIN docket_lines dl ON dl.docket_id = dh.id
+           LEFT JOIN work_orders wo ON dl.work_order_id = wo.id
+           LEFT JOIN cost_codes cc ON dl.cost_code_id = cc.id
+           LEFT JOIN resources r ON dl.resource_id = r.id
+           WHERE dh.project_id = ?
+           ORDER BY dh.date, dh.docket_number, dl.sort_order""",
+        (project_id,),
+    ).fetchall()
+
+    wb, ws = _xlsx_workbook(
+        "Dockets",
+        ["Date", "Docket #", "Supplier", "PO #", "WO #", "Cost Code",
+         "Resource", "Description", "Qty", "Unit", "Rate", "Amount",
+         "Notes", "Claimed"],
+        currency_cols=[11, 12],
+    )
+    for r in rows:
+        ws.append([
+            r["date"], r["docket_number"], r["supplier_name"],
+            r["po_number"] or "", r["wo_number"] or "",
+            r["cost_code"] or "", r["resource_description"] or "",
+            r["description"] or "", r["qty"], r["unit"] or "",
+            round(r["rate"] or 0, 2), round(r["amount"] or 0, 2),
+            r["notes"] or "", r["claimed_reference"] or "",
+        ])
+
+    project = db.execute(
+        "SELECT code FROM projects WHERE id = ?", (project_id,)
+    ).fetchone()
+    code = (project["code"] or "project").replace(" ", "_") if project else "project"
+    return _xlsx_finish(
+        wb, ws,
+        [11, 13, 22, 11, 11, 12, 26, 30, 8, 7, 10, 12, 24, 12],
+        f"dockets_{code}.xlsx",
+    )
+
+
+@bp.route("/projects/<int:project_id>/docket-summary/xlsx", methods=["GET"])
+def docket_summary_xlsx(project_id):
+    """Export the docket summary as a formatted Excel workbook."""
+    from openpyxl.styles import Font
+
+    db = get_db()
+    where, params, err = _build_summary_filter(project_id, request.args)
+    if err:
+        return jsonify({"error": err}), 400
+
+    rows = _run_summary_query(db, where, params)
+
+    wb, ws = _xlsx_workbook(
+        "Docket Summary",
+        ["Category", "Resource", "Unit", "Total Qty", "Rate", "Subtotal",
+         "Docket Count"],
+        currency_cols=[5, 6],
+    )
+    grand_total = 0
+    for r in rows:
+        ws.append([
+            r["category"], r["resource_desc"], r["unit"],
+            r["total_qty"], round(r["rate"] or 0, 2),
+            round(r["subtotal"], 2), r["docket_count"],
+        ])
+        grand_total += r["subtotal"] or 0
+
+    ws.append(["", "", "", "", "Grand Total", round(grand_total, 2), ""])
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+
+    supplier = request.args.get("supplier", "unknown").replace(" ", "_")
+    return _xlsx_finish(
+        wb, ws,
+        [18, 30, 8, 10, 10, 12, 12],
+        f"docket_summary_{supplier}.xlsx",
     )
 
 

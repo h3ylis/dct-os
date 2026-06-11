@@ -880,23 +880,16 @@ function openDocketDialog(existing) {
                                 <tr>
                                     <th class="col-wo" data-tip="Work Order — which scope item this line charges to" data-tip-pos="below">WO</th>
                                     <th class="col-cc" data-tip="Cost Code — which budget category this line charges to" data-tip-pos="below">CC</th>
-                                    <th class="col-res" data-tip="Select a resource to auto-fill description, unit, and rate" data-tip-pos="below">Resource</th>
+                                    <th class="col-res" data-tip="Select a resource to auto-fill description and unit" data-tip-pos="below">Resource</th>
                                     <th class="col-desc">Description</th>
-                                    <th class="col-qty">Qty</th>
+                                    <th class="col-qty" data-tip="Quantities only — dockets don't carry prices. Rates are applied from the resource and confirmed at invoice review in the Docket Summary Report" data-tip-pos="below">Qty</th>
                                     <th class="col-unit">Unit</th>
-                                    <th class="col-rate">Rate</th>
-                                    <th class="col-amt" data-tip="Qty x Rate (auto-calculated)" data-tip-pos="below">Amount</th>
                                     <th class="col-rm"></th>
                                 </tr>
                             </thead>
                             <tbody id="docket-lines-body"></tbody>
                         </table>
                     </div>
-                </div>
-
-                <div class="docket-total-bar">
-                    <span>Total</span>
-                    <span class="docket-grand-total" id="docket-grand-total">$0.00</span>
                 </div>
 
                 <div class="form-group" style="margin-top:12px">
@@ -956,7 +949,6 @@ function openDocketDialog(existing) {
     } else {
         addDocketLine();
     }
-    updateGrandTotal();
 
     // Restore folder browse state if active
     if (browseFiles.length > 0) {
@@ -999,11 +991,9 @@ function addDocketLine(data) {
         <td class="col-res"><select id="ln-res-${idx}" onchange="onLineResourceChange(${idx})" title="Resource">
             <option value="">--</option>${resOpts}
         </select></td>
-        <td class="col-desc"><input type="text" id="ln-desc-${idx}" value="${esc(d.description || '')}" placeholder="Description"></td>
-        <td class="col-qty"><input type="number" id="ln-qty-${idx}" step="0.01" value="${d.qty || ''}" oninput="updateLineAmount(${idx})" placeholder="0"></td>
+        <td class="col-desc"><input type="text" id="ln-desc-${idx}" value="${esc(d.description || '')}" placeholder="Description"><input type="hidden" id="ln-rate-${idx}" value="${d.rate || ''}"></td>
+        <td class="col-qty"><input type="number" id="ln-qty-${idx}" step="0.01" value="${d.qty || ''}" placeholder="0"></td>
         <td class="col-unit"><input type="text" id="ln-unit-${idx}" value="${esc(d.unit || '')}" placeholder="Hr"></td>
-        <td class="col-rate"><input type="number" id="ln-rate-${idx}" step="0.01" value="${d.rate || ''}" oninput="updateLineAmount(${idx})" placeholder="0.00"></td>
-        <td class="col-amt"><span id="ln-amt-${idx}" class="line-amount">${currency(d.amount || 0)}</span></td>
         <td class="col-rm"><button class="btn-line-remove" onclick="removeDocketLine(${idx})" title="Remove line">&times;</button></td>
     `;
     document.getElementById('docket-lines-body').appendChild(tr);
@@ -1016,7 +1006,6 @@ function addDocketLine(data) {
 function removeDocketLine(idx) {
     const tr = document.getElementById(`dkline-${idx}`);
     if (tr) tr.remove();
-    updateGrandTotal();
 }
 
 async function onLineWOChange(idx) {
@@ -1076,28 +1065,9 @@ function onLineResourceChange(idx) {
 
     if (!descEl.value) descEl.value = res.description;
     unitEl.value = res.unit;
+    // Rate is applied silently from the resource — dockets carry quantities
+    // only; rates are confirmed at invoice review in the summary report.
     rateEl.value = res.standard_rate || '';
-    updateLineAmount(idx);
-}
-
-function updateLineAmount(idx) {
-    const qty = parseFloat(document.getElementById(`ln-qty-${idx}`).value) || 0;
-    const rate = parseFloat(document.getElementById(`ln-rate-${idx}`).value) || 0;
-    const amt = qty * rate;
-    document.getElementById(`ln-amt-${idx}`).textContent = currency(amt);
-    updateGrandTotal();
-}
-
-function updateGrandTotal() {
-    let total = 0;
-    document.querySelectorAll('#docket-lines-body tr').forEach(tr => {
-        const idx = tr.id.replace('dkline-', '');
-        const qty = parseFloat(document.getElementById(`ln-qty-${idx}`)?.value) || 0;
-        const rate = parseFloat(document.getElementById(`ln-rate-${idx}`)?.value) || 0;
-        total += qty * rate;
-    });
-    const el = document.getElementById('docket-grand-total');
-    if (el) el.textContent = currency(total);
 }
 
 function collectDocketLines() {
@@ -1295,11 +1265,16 @@ async function runDocketSummary() {
         if (ids.length === 0) { toast('Select at least one docket', 'error'); return; }
     }
 
+    // New report generation — reset the rate-review session state
+    editedRateKeys = new Set();
+    ratesUpdatedCount = 0;
+
     const url = _buildSummaryUrl('/api/projects/' + activeProjectId + '/docket-summary');
     try {
         const data = await apiFetch(url);
         renderDocketSummary(data);
         document.getElementById('rpt-csv-btn').style.display = '';
+        document.getElementById('rpt-xlsx-btn').style.display = '';
     } catch (e) {
         toast('Failed to generate report', 'error');
     }
@@ -1307,12 +1282,37 @@ async function runDocketSummary() {
 
 let lastSummaryData = null;
 
+// Rate-review session state (reset when a new report is generated)
+let editedRateKeys = new Set();
+let ratesUpdatedCount = 0;
+
+function rateCellHtml(item) {
+    // Free-text rows (no resource) start blank when unrated — inviting the
+    // user to type the rate off the invoice.
+    const rate = Number(item.rate || 0);
+    const blank = !item.resource_id && rate === 0;
+    const edited = editedRateKeys.has(String(item.line_ids)) ? ' rate-edited' : '';
+    return '<td class="col-right"><input type="number" step="0.01" min="0"' +
+        ' class="rate-cell' + edited + '"' +
+        ' value="' + (blank ? '' : rate.toFixed(2)) + '"' +
+        (blank ? ' placeholder="rate?"' : '') +
+        ' data-lines="' + esc(String(item.line_ids || '')) + '"' +
+        ' data-resource="' + (item.resource_id || '') + '"' +
+        ' data-standard="' + (item.standard_rate != null ? item.standard_rate : '') + '"' +
+        ' data-old="' + rate + '"' +
+        ' data-desc="' + esc(item.resource_desc || '') + '"' +
+        ' data-unit="' + esc(item.unit || '') + '"' +
+        ' onchange="onRateCellChange(this)"' +
+        ' data-tip="Edit if the invoice shows a different rate" data-tip-pos="left"></td>';
+}
+
 function renderDocketSummary(data) {
     lastSummaryData = data;
     const output = document.getElementById('report-output');
     if (!data.groups || data.groups.length === 0) {
         output.innerHTML = '<div class="report-empty">No docket data found for this selection.</div>';
         document.getElementById('rpt-csv-btn').style.display = 'none';
+        document.getElementById('rpt-xlsx-btn').style.display = 'none';
         // Hide claim bar
         const claimBar = document.getElementById('rpt-claim-bar');
         if (claimBar) claimBar.style.display = 'none';
@@ -1351,7 +1351,7 @@ function renderDocketSummary(data) {
     if (categorised) html += '<th>Category</th>';
     html += '<th>Resource</th><th>Unit</th>';
     html += '<th class="col-right">Qty</th>';
-    html += '<th class="col-right">Avg Rate</th>';
+    html += '<th class="col-right" data-tip="Rates are editable — confirm them against the invoice and DCT-OS keeps your resource rates current" data-tip-pos="below">Rate</th>';
     html += '<th class="col-right">Subtotal</th>';
     html += '<th class="col-right">Dockets</th>';
     html += '</tr></thead><tbody>';
@@ -1365,7 +1365,7 @@ function renderDocketSummary(data) {
                 html += '<td>' + esc(item.resource_desc) + '</td>';
                 html += '<td>' + esc(item.unit || '') + '</td>';
                 html += '<td class="col-right">' + (item.total_qty != null ? Number(item.total_qty).toFixed(2) : '') + '</td>';
-                html += '<td class="col-right">' + currency(item.avg_rate) + '</td>';
+                html += rateCellHtml(item);
                 html += '<td class="col-right">' + currency(item.subtotal) + '</td>';
                 html += '<td class="col-right">' + item.docket_count + '</td>';
                 html += '</tr>';
@@ -1394,7 +1394,7 @@ function renderDocketSummary(data) {
             html += '<td>' + esc(item.resource_desc) + '</td>';
             html += '<td>' + esc(item.unit || '') + '</td>';
             html += '<td class="col-right">' + (item.total_qty != null ? Number(item.total_qty).toFixed(2) : '') + '</td>';
-            html += '<td class="col-right">' + currency(item.avg_rate) + '</td>';
+            html += rateCellHtml(item);
             html += '<td class="col-right">' + currency(item.subtotal) + '</td>';
             html += '<td class="col-right">' + item.docket_count + '</td>';
             html += '</tr>';
@@ -1407,6 +1407,12 @@ function renderDocketSummary(data) {
     }
 
     html += '</tbody></table>';
+
+    if (ratesUpdatedCount > 0) {
+        html += '<div class="rpt-rate-counter">' + ratesUpdatedCount +
+            ' rate' + (ratesUpdatedCount === 1 ? '' : 's') + ' updated this review</div>';
+    }
+
     output.innerHTML = html;
 
     // Show claim bar when in docket mode
@@ -1420,10 +1426,202 @@ function rerenderSummary() {
     if (lastSummaryData) renderDocketSummary(lastSummaryData);
 }
 
+// --- Rate review (the rate feedback loop) ---
+
+async function applyRerate(lineIds, newRate, opts) {
+    opts = opts || {};
+    return apiRequest('POST', '/api/projects/' + activeProjectId + '/rerate', {
+        line_ids: lineIds,
+        new_rate: newRate,
+        resource_id: opts.resource_id || null,
+        update_standard: !!opts.update_standard,
+        add_resource: opts.add_resource || null,
+    });
+}
+
+async function refreshSummaryAfterRerate() {
+    const url = _buildSummaryUrl('/api/projects/' + activeProjectId + '/docket-summary');
+    if (!url) return;
+    try {
+        const data = await apiFetch(url);
+        renderDocketSummary(data);
+    } catch (e) { /* keep current view */ }
+    // Resource rates changed — refresh the cache used by docket entry
+    try { cachedResources = await apiFetch('/api/resources'); } catch (e) { /* non-critical */ }
+}
+
+function markRateEdited(lineKey) {
+    editedRateKeys.add(String(lineKey));
+    ratesUpdatedCount++;
+}
+
+function toastWithUndo(msg, undoFn) {
+    const el = document.getElementById('toast');
+    el.innerHTML = esc(msg) + ' <button class="toast-undo">Undo</button>';
+    el.querySelector('.toast-undo').onclick = async () => {
+        el.className = 'toast';
+        try { await undoFn(); } catch (e) { toast('Undo failed', 'error'); }
+    };
+    el.className = 'toast show';
+    clearTimeout(el._timeout);
+    el._timeout = setTimeout(() => { el.className = 'toast'; el.innerHTML = ''; }, 8000);
+}
+
+async function onRateCellChange(input) {
+    const oldRate = parseFloat(input.dataset.old) || 0;
+    const newRate = parseFloat(input.value);
+    const lineKey = input.dataset.lines;
+    const lineIds = lineKey.split(',').map(Number).filter(n => !isNaN(n));
+
+    if (isNaN(newRate) || newRate < 0 || lineIds.length === 0) {
+        input.value = oldRate ? oldRate.toFixed(2) : '';
+        return;
+    }
+    if (Math.abs(newRate - oldRate) < 0.005) {
+        input.value = oldRate.toFixed(2);
+        return;
+    }
+
+    const resourceId = parseInt(input.dataset.resource) || null;
+
+    if (!resourceId) {
+        // Free-text line — value it, then offer to make it a resource
+        try {
+            await applyRerate(lineIds, newRate, {});
+            markRateEdited(lineKey);
+            offerAddResource(input, lineIds, newRate);
+        } catch (e) { /* apiRequest already toasted */ }
+        return;
+    }
+
+    if (newRate > oldRate) {
+        // Typing the higher invoice rate IS the acceptance — apply both,
+        // confirm with an undo.
+        try {
+            const res = await applyRerate(lineIds, newRate, {
+                resource_id: resourceId, update_standard: true,
+            });
+            markRateEdited(lineKey);
+            const msg = 'Rate updated ' + currency(oldRate) + ' → ' + currency(newRate) +
+                (res.standard_updated ? ' · standard rate updated' : '');
+            toastWithUndo(msg, async () => {
+                await applyRerate(lineIds, oldRate, {});
+                if (res.standard_updated && res.old_standard_rate != null) {
+                    await apiRequest('PUT', '/api/resources/' + resourceId,
+                        { standard_rate: res.old_standard_rate });
+                }
+                editedRateKeys.delete(String(lineKey));
+                ratesUpdatedCount = Math.max(0, ratesUpdatedCount - 1);
+                await refreshSummaryAfterRerate();
+                toast('Rate change undone');
+            });
+            await refreshSummaryAfterRerate();
+        } catch (e) { input.value = oldRate.toFixed(2); }
+        return;
+    }
+
+    // Lower than the docket carried — one-off discount, or the new normal?
+    showRateGate(input, lineIds, resourceId, oldRate, newRate);
+}
+
+function showRateGate(input, lineIds, resourceId, oldRate, newRate) {
+    const standard = parseFloat(input.dataset.standard);
+    const ref = !isNaN(standard) ? standard : oldRate;
+    closeRateGate();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'rate-gate-overlay';
+    overlay.innerHTML =
+        '<div class="rate-gate">' +
+        '<p>' + currency(newRate) + ' is below the standard rate (' + currency(ref) + ') for ' +
+        '<strong>' + esc(input.dataset.desc) + '</strong>.</p>' +
+        '<div class="rate-gate-actions">' +
+        '<button class="btn" id="rate-gate-oneoff">One-off for this claim</button>' +
+        '<button class="btn btn-primary" id="rate-gate-standard">Update standard rate too</button>' +
+        '<button class="btn rate-gate-cancel" id="rate-gate-cancel">Cancel</button>' +
+        '</div></div>';
+    document.body.appendChild(overlay);
+
+    const lineKey = input.dataset.lines;
+    const finish = async (updateStandard) => {
+        closeRateGate();
+        try {
+            await applyRerate(lineIds, newRate, {
+                resource_id: resourceId, update_standard: updateStandard,
+            });
+            markRateEdited(lineKey);
+            toast('Rate updated ' + currency(oldRate) + ' → ' + currency(newRate) +
+                (updateStandard ? ' · standard rate updated' : ' (one-off)'));
+            await refreshSummaryAfterRerate();
+        } catch (e) { input.value = oldRate.toFixed(2); }
+    };
+
+    document.getElementById('rate-gate-oneoff').onclick = () => finish(false);
+    document.getElementById('rate-gate-standard').onclick = () => finish(true);
+    document.getElementById('rate-gate-cancel').onclick = () => {
+        closeRateGate();
+        input.value = oldRate.toFixed(2);
+    };
+}
+
+function closeRateGate() {
+    const el = document.getElementById('rate-gate-overlay');
+    if (el) el.remove();
+}
+
+function offerAddResource(input, lineIds, rate) {
+    closeRateGate();
+    const desc = input.dataset.desc;
+    const unit = input.dataset.unit;
+    const supplier = lastSummaryData ? lastSummaryData.supplier : null;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'rate-gate-overlay';
+    overlay.innerHTML =
+        '<div class="rate-gate">' +
+        '<p>Add <strong>' + esc(desc) + '</strong> @ ' + currency(rate) +
+        (unit ? '/' + esc(unit) : '') + ' to your resources for next time?</p>' +
+        '<div class="rate-gate-actions">' +
+        '<button class="btn btn-primary" id="rate-gate-add">Add to resources</button>' +
+        '<button class="btn rate-gate-cancel" id="rate-gate-skip">Not now</button>' +
+        '</div></div>';
+    document.body.appendChild(overlay);
+
+    document.getElementById('rate-gate-add').onclick = async () => {
+        closeRateGate();
+        try {
+            await applyRerate(lineIds, rate, {
+                add_resource: {
+                    description: desc,
+                    unit: unit || 'Ea',
+                    supplier_name: supplier,
+                },
+            });
+            toast('Added to resources: ' + desc);
+            await refreshSummaryAfterRerate();
+        } catch (e) { /* already toasted */ }
+    };
+    document.getElementById('rate-gate-skip').onclick = async () => {
+        closeRateGate();
+        await refreshSummaryAfterRerate();
+    };
+}
+
 function exportSummaryCSV() {
     if (!activeProjectId) return;
     const url = _buildSummaryUrl('/api/projects/' + activeProjectId + '/docket-summary/csv');
     if (url) window.open(url, '_blank');
+}
+
+function exportSummaryXLSX() {
+    if (!activeProjectId) return;
+    const url = _buildSummaryUrl('/api/projects/' + activeProjectId + '/docket-summary/xlsx');
+    if (url) window.open(url, '_blank');
+}
+
+function exportDocketsXLSX() {
+    if (!activeProjectId) return;
+    window.open('/api/projects/' + activeProjectId + '/dockets/export-xlsx', '_blank');
 }
 
 // --- Claim / Unclaim Dockets ---
@@ -1830,6 +2028,7 @@ async function openDatabaseDialog() {
         '<strong>' + esc(dbInfo.current_name) + '</strong>' +
         '<div class="db-recent-path">' + esc(dbInfo.current) + '</div></div>' +
         '</div>' +
+        '<a class="btn" href="/api/backup" data-tip="Download a snapshot copy of the current database" data-tip-pos="below">Backup</a>' +
         '<button class="btn btn-primary" onclick="showNewDatabaseForm()" id="db-new-btn">+ New Database</button>' +
         '</div>';
 

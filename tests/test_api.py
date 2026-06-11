@@ -872,3 +872,196 @@ def test_seed_summary_project_1(client):
     assert data["total_dockets"] == 18
     # 8 distinct suppliers in seed POs + docket headers
     assert data["supplier_count"] >= 6
+
+
+# ---------------------------------------------------------------------------
+# Rate review (rate feedback loop) tests
+# ---------------------------------------------------------------------------
+
+def _summary_items(client, pid, supplier="Test Supplier"):
+    resp = client.get(
+        f"/api/projects/{pid}/docket-summary?supplier={supplier.replace(' ', '+')}"
+    )
+    data = json.loads(resp.data)
+    items = []
+    for g in data["groups"]:
+        items.extend(g["items"])
+    return items, data
+
+
+def test_summary_rows_carry_line_ids_and_rate(client):
+    pid, ids = _create_test_dockets(client)
+    items, data = _summary_items(client, pid)
+    assert len(items) > 0
+    for item in items:
+        assert "line_ids" in item
+        assert "rate" in item
+        assert "resource_id" in item
+        # line_ids is a comma-joined string of ints
+        assert all(p.isdigit() for p in str(item["line_ids"]).split(","))
+
+
+def test_rerate_lines(client):
+    pid, ids = _create_test_dockets(client)
+    items, before = _summary_items(client, pid)
+    target = items[0]
+    line_ids = [int(x) for x in str(target["line_ids"]).split(",")]
+    new_rate = round((target["rate"] or 0) + 10, 2)
+
+    resp = client.post(
+        f"/api/projects/{pid}/rerate",
+        json={"line_ids": line_ids, "new_rate": new_rate},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    result = json.loads(resp.data)
+    assert result["updated_lines"] == len(line_ids)
+    assert result["old_rate"] == target["rate"]
+
+    # Summary now reflects the new rate and re-valued subtotal
+    items_after, after = _summary_items(client, pid)
+    match = [i for i in items_after if str(i["line_ids"]) == str(target["line_ids"])
+             or set(str(i["line_ids"]).split(",")) & set(map(str, line_ids))]
+    assert any(abs(i["rate"] - new_rate) < 0.01 for i in match)
+    assert after["grand_total"] != before["grand_total"]
+
+
+def test_rerate_updates_standard_rate(client):
+    pid, ids = _create_test_dockets(client)
+
+    # Create a resource and a docket carrying it
+    res = json.loads(client.post("/api/resources", json={
+        "description": "Test Roller", "unit": "Hr", "standard_rate": 150,
+    }, content_type="application/json").data)
+    client.post(f"/api/projects/{pid}/dockets", json={
+        "date": "2025-02-10", "supplier_name": "Test Supplier",
+        "docket_number": "RGC-T009",
+        "lines": [{"resource_id": res["id"], "description": "Test Roller",
+                   "qty": 4, "unit": "Hr", "rate": 150}],
+    }, content_type="application/json")
+
+    items, _ = _summary_items(client, pid)
+    target = next(i for i in items if i["resource_id"] == res["id"])
+    line_ids = [int(x) for x in str(target["line_ids"]).split(",")]
+
+    resp = client.post(f"/api/projects/{pid}/rerate", json={
+        "line_ids": line_ids, "new_rate": 165,
+        "resource_id": res["id"], "update_standard": True,
+    }, content_type="application/json")
+    assert resp.status_code == 200
+    result = json.loads(resp.data)
+    assert result["standard_updated"] is True
+    assert result["old_standard_rate"] == 150
+
+    updated = json.loads(client.get(f"/api/resources/{res['id']}").data)
+    assert updated["standard_rate"] == 165
+
+
+def test_rerate_add_resource_from_free_text(client):
+    pid, ids = _create_test_dockets(client)
+
+    # Free-text docket line (no resource), unrated
+    client.post(f"/api/projects/{pid}/dockets", json={
+        "date": "2025-02-11", "supplier_name": "Test Supplier",
+        "docket_number": "RGC-T011",
+        "lines": [{"description": "Rock breaker attachment",
+                   "qty": 6, "unit": "Hr", "rate": 0}],
+    }, content_type="application/json")
+
+    items, _ = _summary_items(client, pid)
+    target = next(i for i in items if i["resource_desc"] == "Rock breaker attachment")
+    assert target["resource_id"] is None
+    line_ids = [int(x) for x in str(target["line_ids"]).split(",")]
+
+    resp = client.post(f"/api/projects/{pid}/rerate", json={
+        "line_ids": line_ids, "new_rate": 95,
+        "add_resource": {"description": "Rock breaker attachment",
+                         "unit": "Hr", "supplier_name": "Test Supplier"},
+    }, content_type="application/json")
+    assert resp.status_code == 200
+    result = json.loads(resp.data)
+    assert result["new_resource_id"] is not None
+
+    # Resource exists with the invoice rate as standard
+    res = json.loads(client.get(f"/api/resources/{result['new_resource_id']}").data)
+    assert res["standard_rate"] == 95
+    assert res["description"] == "Rock breaker attachment"
+
+    # Lines are now linked to the resource
+    items_after, _ = _summary_items(client, pid)
+    relinked = next(i for i in items_after
+                    if i["resource_desc"] == "Rock breaker attachment")
+    assert relinked["resource_id"] == result["new_resource_id"]
+    assert abs(relinked["rate"] - 95) < 0.01
+
+
+def test_rerate_validation(client):
+    pid, ids = _create_test_dockets(client)
+
+    # Missing line_ids
+    resp = client.post(f"/api/projects/{pid}/rerate",
+                       json={"new_rate": 100}, content_type="application/json")
+    assert resp.status_code == 400
+
+    # Negative rate
+    resp = client.post(f"/api/projects/{pid}/rerate",
+                       json={"line_ids": [1], "new_rate": -5},
+                       content_type="application/json")
+    assert resp.status_code == 400
+
+    # Lines from another project (seed project 1)
+    resp = client.post(f"/api/projects/{pid}/rerate",
+                       json={"line_ids": [1], "new_rate": 100},
+                       content_type="application/json")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Backup and Excel export tests
+# ---------------------------------------------------------------------------
+
+def test_backup_download(client):
+    resp = client.get("/api/backup")
+    assert resp.status_code == 200
+    assert "attachment" in resp.headers.get("Content-Disposition", "")
+    # Valid SQLite file magic
+    assert resp.data[:16] == b"SQLite format 3\x00"
+
+
+def test_export_dockets_xlsx(client):
+    import io as _io
+    from openpyxl import load_workbook
+
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/dockets/export-xlsx")
+    assert resp.status_code == 200
+    assert "spreadsheetml" in resp.content_type
+
+    wb = load_workbook(_io.BytesIO(resp.data))
+    ws = wb.active
+    headers = [c.value for c in ws[1]]
+    assert "Date" in headers
+    assert "Amount" in headers
+    assert ws.max_row == 5  # header + 4 line items
+
+
+def test_docket_summary_xlsx(client):
+    import io as _io
+    from openpyxl import load_workbook
+
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(
+        f"/api/projects/{pid}/docket-summary/xlsx?supplier=Test+Supplier"
+    )
+    assert resp.status_code == 200
+    assert "spreadsheetml" in resp.content_type
+
+    wb = load_workbook(_io.BytesIO(resp.data))
+    ws = wb.active
+    headers = [c.value for c in ws[1]]
+    assert "Rate" in headers
+    assert "Subtotal" in headers
+    # Last row is the grand total
+    last = [c.value for c in ws[ws.max_row]]
+    assert "Grand Total" in last
+
