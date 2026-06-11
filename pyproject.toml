@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dct-os"
-version = "0.2.0"
+version = "0.3.0"
 description = "Daily cost tracking for civil engineering"
 readme = "README.md"
 license = "BUSL-1.1"

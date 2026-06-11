@@ -10,9 +10,11 @@ DCT-OS is a cost tracking platform built for civil engineering — project manag
 - Daily docket entry with resource rate lookups
 - PDF-assisted manual entry (PDF viewer + form side-by-side)
 - Project summary, cost code breakdown, and supplier spend reports
-- CSV and Excel export
-- REST API for all operations
-- Single binary or `pip install` — runs anywhere
+- Cost code budget tracking with burn-rate visuals
+- Shared databases — open a `.db` file on a network drive, SharePoint, or OneDrive, and see who else has it open
+- CSV export and import
+- REST API for all operations ([documented](docs/API.md))
+- `pip install dct-os` — runs on Windows, macOS, and Linux
 
 ## Installation (Windows)
 
@@ -109,6 +111,33 @@ Your database stays in your user folder at `%LOCALAPPDATA%\DCT-OS\` unless you d
 
 ---
 
+## Installation (macOS / Linux)
+
+```bash
+pip install dct-os
+dct-os
+```
+
+Your browser opens to [http://localhost:5000](http://localhost:5000). That's it.
+
+Auto-start on login (`dct-os install`) is Windows-only for now — on Mac/Linux just run `dct-os` when you need it, or add it to your own startup mechanism.
+
+---
+
+## Sharing a database with your team
+
+DCT-OS stores everything in a single `.db` file, and you can put that file anywhere — including a shared network drive, a SharePoint document library, or a synced OneDrive folder.
+
+1. Click the **database indicator** in the header (the dot + filename next to the logo)
+2. Browse to the shared folder and open the `.db` file — or create a new one there
+3. Everyone on the team does the same. The indicator shows who else currently has the file open.
+
+**The honest fine print:** SQLite (the database engine inside DCT-OS) is designed for one writer at a time. Two people *reading* is fine. Two people *entering dockets at the same moment* can collide — DCT-OS warns you with a banner when someone else has the file open, so coordinate who's entering data. For genuinely concurrent multi-user entry, a shared file isn't the right tool — that's what client-server databases are for.
+
+Also note: sync services (OneDrive/SharePoint) sync the file *between edits*, not live. Best practice is one person entering at a time, and let the file sync before the next person starts.
+
+---
+
 ## Quick Start (for developers)
 
 ```bash
@@ -117,6 +146,8 @@ dct-os
 ```
 
 Your browser opens automatically to [http://localhost:5000](http://localhost:5000). Demo data loads on first run.
+
+API reference: [docs/API.md](docs/API.md)
 
 ### Auto-start on Windows
 
@@ -142,6 +173,25 @@ dct-os
 | `DCT_HOST` | `127.0.0.1` | Bind address |
 | `DCT_DATA_DIR` | `.` (current dir) | Where to store the database |
 | `DCT_NO_SEED` | unset | Set to `1` to start with an empty database |
+
+### Optional: remote log reporting (self-hosted)
+
+If you run several DCT-OS instances (site laptops, office PCs) you can have
+them report health and errors to a log collector **that you operate** — there
+is no built-in destination and DCT-OS sends nothing anywhere by default.
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `DCT_OS_LOG_URL` | unset (feature off) | Base URL of your collector |
+| `DCT_OS_LOG_KEY` | unset | Optional API key (`X-ABLog-Key` header) |
+| `DCT_OS_LOG_APP` | `dct-os` | Name this instance reports as |
+| `DCT_OS_LOG_INTERVAL` | `300` | Heartbeat seconds (`0` = no heartbeat) |
+
+When enabled, DCT-OS POSTs JSON to `{url}/api/v2/log` (startup, unhandled
+errors with traceback, upgrade results) and `{url}/api/v2/heartbeat`
+(liveness). The schema is in `dct_os/log_webhook.py` — a few lines of Flask
+or any webhook receiver can accept it. Reporting is fire-and-forget and never
+affects the app if the collector is down.
 
 ## Licence and Use
 

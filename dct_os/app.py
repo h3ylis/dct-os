@@ -25,9 +25,19 @@ def create_app(test_config=None):
     )
 
     if test_config is None:
-        data_dir = Path(os.environ.get("DCT_DATA_DIR", "."))
-        db_path = data_dir / "dct_os.db"
-        app.config["DATABASE"] = str(db_path)
+        # Check config for last-used database, fall back to default
+        from dct_os.database_manager import load_config, acquire_lock
+        config = load_config()
+        last_db = config.get("last_database")
+
+        if last_db and Path(last_db).exists():
+            db_path = Path(last_db)
+        else:
+            data_dir = Path(os.environ.get("DCT_DATA_DIR", "."))
+            db_path = data_dir / "dct_os.db"
+
+        app.config["DATABASE"] = str(db_path.resolve())
+        acquire_lock(app.config["DATABASE"])
     else:
         app.config.update(test_config)
 
@@ -45,6 +55,14 @@ def create_app(test_config=None):
     @app.route("/")
     def index():
         return render_template("index.html")
+
+    # Optional remote log reporting — inert unless DCT_OS_LOG_URL is set
+    # (see dct_os/log_webhook.py; this is self-hosting, not telemetry).
+    try:
+        from dct_os.log_webhook import init_app as _log_webhook_init
+        _log_webhook_init(app)
+    except Exception:
+        pass
 
     return app
 
@@ -254,7 +272,13 @@ def _send_telemetry(stats):
 
 
 def _save_upgrade_log(stats, to_version):
-    """Save an upgrade log entry to the data directory."""
+    """Save an upgrade log entry to the data directory (and to the optional
+    remote log collector when DCT_OS_LOG_URL is configured)."""
+    try:
+        from dct_os.log_webhook import ship_upgrade
+        ship_upgrade(stats, to_version)
+    except Exception:
+        pass
     stats["to_version"] = to_version
     data_dir = Path(os.environ.get("DCT_DATA_DIR", "."))
     log_dir = data_dir / "logs"

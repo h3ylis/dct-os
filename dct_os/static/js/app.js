@@ -1724,6 +1724,12 @@ function openHelpDialog() {
             <p><strong>Claiming</strong> tags dockets with a reference string (e.g. an invoice number). Claimed dockets show a green tint in the grid and can be filtered out of the picker.</p>
         </div>
         <div class="help-section">
+            <h4>Shared Databases</h4>
+            <p>Click the <strong>database indicator</strong> in the header (the dot + filename) to switch databases, open a shared file, or create a new one. Your data lives in a single <code>.db</code> file that can sit on a network drive, SharePoint, or OneDrive.</p>
+            <p>The dot shows <strong>green</strong> when the file is yours alone and <strong>amber</strong> when someone else has it open. A banner warns you when you open a file that's in use.</p>
+            <p><strong>One person enters data at a time.</strong> The database engine allows one writer at a moment — simultaneous entry from two machines can collide. Reading together is fine; coordinate who's entering dockets.</p>
+        </div>
+        <div class="help-section">
             <h4>Keyboard Shortcuts</h4>
             <dl>
                 <dt><kbd>Esc</kbd></dt>
@@ -1773,6 +1779,257 @@ function dismissUpdateBanner() {
     if (banner) banner.style.display = 'none';
 }
 
+// --- Database Picker ---
+
+let currentDbPath = null;
+
+async function loadDatabaseInfo() {
+    try {
+        const data = await apiFetch('/api/database');
+        currentDbPath = data.current;
+        const dot = document.getElementById('db-dot');
+        const name = document.getElementById('db-name');
+        if (dot && name) {
+            name.textContent = data.current_name || 'Local';
+            if (data.locked_by) {
+                dot.classList.add('locked');
+                name.title = 'Locked by ' + data.locked_by.user + ' on ' + data.locked_by.hostname;
+            } else {
+                dot.classList.remove('locked');
+                name.title = data.current;
+            }
+        }
+    } catch (e) { /* non-critical */ }
+}
+
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function openDatabaseDialog() {
+    let dbInfo;
+    try {
+        dbInfo = await apiFetch('/api/database');
+    } catch (e) {
+        toast('Could not load database info', 'error');
+        return;
+    }
+
+    const recent = dbInfo.recent || [];
+
+    let html = '<div class="db-dialog">';
+
+    // Current database + New button row
+    html += '<div class="db-current-row">' +
+        '<div style="flex:1;min-width:0">' +
+        '<div class="db-section-label" style="padding-top:0">Current Database</div>' +
+        '<div style="padding:2px 0;font-size:13px;color:var(--text)">' +
+        '<strong>' + esc(dbInfo.current_name) + '</strong>' +
+        '<div class="db-recent-path">' + esc(dbInfo.current) + '</div></div>' +
+        '</div>' +
+        '<button class="btn btn-primary" onclick="showNewDatabaseForm()" id="db-new-btn">+ New Database</button>' +
+        '</div>';
+
+    // New database form (hidden by default)
+    html += '<div id="db-new-form" style="display:none;padding:8px 0">' +
+        '<div class="db-section-label" style="padding-top:0">Create New Database</div>' +
+        '<p style="font-size:12px;color:var(--text-muted);margin:0 0 8px">Browse to a folder below, then name your database and click Create.</p>' +
+        '<div class="db-new-row">' +
+        '<input type="text" id="new-db-dir" placeholder="Directory (browse below or type)" value="' + esc(dbInfo.current_dir) + '">' +
+        '<input type="text" id="new-db-name" placeholder="Filename" value="dct_os.db" style="max-width:140px">' +
+        '<button class="btn btn-primary btn-sm" onclick="createNewDatabase()">Create</button>' +
+        '</div></div>';
+
+    // Recent databases
+    if (recent.length > 0) {
+        html += '<div class="db-section-label">Recent</div>';
+        html += '<div class="db-recent">';
+        for (const r of recent) {
+            const isActive = r.path === dbInfo.current ? ' active' : '';
+            html += '<div class="db-recent-item' + isActive + '" onclick="switchDatabase(\'' + esc(r.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'")) + '\')">' +
+                '<span class="db-item-icon">' + (isActive ? '📌' : '🗃️') + '</span>' +
+                '<div style="flex:1;min-width:0">' +
+                '<div>' + esc(r.name) + '</div>' +
+                '<div class="db-recent-path">' + esc(r.path) + '</div>' +
+                '</div></div>';
+        }
+        html += '</div>';
+    }
+
+    // Browse section
+    html += '<div class="db-section-label">Browse</div>';
+    html += '<div id="db-browser-container"></div>';
+
+    html += '</div>';
+
+    openModal('Switch Database', html, { save: async () => {} });
+    document.getElementById('modal-save').style.display = 'none';
+
+    // Load the file browser
+    loadBrowser(dbInfo.current_dir);
+}
+
+function showNewDatabaseForm() {
+    const form = document.getElementById('db-new-form');
+    const btn = document.getElementById('db-new-btn');
+    if (form && btn) {
+        const showing = form.style.display !== 'none';
+        form.style.display = showing ? 'none' : '';
+        btn.textContent = showing ? '+ New Database' : 'Cancel New';
+        btn.classList.toggle('btn-primary', showing);
+        btn.classList.toggle('btn-danger', !showing);
+        if (!showing) {
+            const nameInput = document.getElementById('new-db-name');
+            if (nameInput) nameInput.focus();
+        }
+    }
+}
+
+async function loadBrowser(path) {
+    const container = document.getElementById('db-browser-container');
+    if (!container) return;
+
+    container.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:13px">Loading...</div>';
+
+    let data;
+    try {
+        const url = path ? '/api/browse?path=' + encodeURIComponent(path) : '/api/browse';
+        data = await apiFetch(url);
+    } catch (e) {
+        container.innerHTML = '<div style="padding:12px;color:var(--danger)">Error: ' + esc(e.message) + '</div>';
+        return;
+    }
+
+    let html = '<div class="db-browser">';
+
+    // Path bar with up button
+    html += '<div class="db-browser-path">';
+    if (data.parent) {
+        html += '<button class="btn btn-sm" onclick="loadBrowser(\'' + esc(data.parent.replace(/\\/g, '\\\\').replace(/'/g, "\\'")) + '\')">↑ Up</button>';
+    }
+    html += '<span>' + esc(data.path) + '</span>';
+    html += '</div>';
+
+    // Shortcuts + drives
+    if (data.shortcuts && data.shortcuts.length > 0) {
+        html += '<div class="db-browser-shortcuts">';
+        for (const s of data.shortcuts) {
+            html += '<button class="db-shortcut" onclick="loadBrowser(\'' + esc(s.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'")) + '\')">' + esc(s.name) + '</button>';
+        }
+        if (data.drives) {
+            for (const d of data.drives) {
+                html += '<button class="db-shortcut" onclick="loadBrowser(\'' + esc(d.replace(/\\/g, '\\\\').replace(/'/g, "\\'")) + '\')">' + esc(d) + '</button>';
+            }
+        }
+        html += '</div>';
+    }
+
+    // Items
+    if (data.items && data.items.length > 0) {
+        for (const item of data.items) {
+            const escapedPath = esc(item.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+            if (item.type === 'directory') {
+                html += '<div class="db-item" onclick="loadBrowser(\'' + escapedPath + '\')">' +
+                    '<span class="db-item-icon">📁</span>' +
+                    '<span class="db-item-name">' + esc(item.name) + '</span>' +
+                    '</div>';
+            } else {
+                html += '<div class="db-item" onclick="switchDatabase(\'' + escapedPath + '\')">' +
+                    '<span class="db-item-icon">🗃️</span>' +
+                    '<span class="db-item-name">' + esc(item.name) + '</span>' +
+                    '<span class="db-item-size">' + formatFileSize(item.size) + '</span>' +
+                    '<button class="btn btn-sm btn-primary db-item-action" onclick="event.stopPropagation();switchDatabase(\'' + escapedPath + '\')">Open</button>' +
+                    '</div>';
+            }
+        }
+    } else {
+        html += '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">No folders or .db files here</div>';
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+
+    // Update the new-db directory field to match current browser path
+    const dirInput = document.getElementById('new-db-dir');
+    if (dirInput) dirInput.value = data.path;
+}
+
+async function switchDatabase(path) {
+    // First check lock status
+    try {
+        const resp = await fetch(API + '/api/database/switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path }),
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            toast(data.error || 'Failed to switch database', 'error');
+            return;
+        }
+
+        // Show lock warning if someone else has it open
+        if (data.locked_by) {
+            showLockBanner(data.locked_by);
+        }
+
+        toast('Switched to ' + path.split(/[/\\]/).pop());
+        closeModal();
+
+        // Reload the page to reflect the new database
+        window.location.reload();
+    } catch (e) {
+        toast('Failed to switch: ' + e.message, 'error');
+    }
+}
+
+async function createNewDatabase() {
+    const dir = document.getElementById('new-db-dir').value.trim();
+    const name = document.getElementById('new-db-name').value.trim();
+    if (!dir) { toast('Enter a directory path', 'error'); return; }
+    if (!name) { toast('Enter a filename', 'error'); return; }
+
+    try {
+        const resp = await fetch(API + '/api/database/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ directory: dir, filename: name }),
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            toast(data.error || 'Failed to create database', 'error');
+            return;
+        }
+
+        toast('Created ' + name);
+        closeModal();
+        window.location.reload();
+    } catch (e) {
+        toast('Failed to create: ' + e.message, 'error');
+    }
+}
+
+function showLockBanner(lockInfo) {
+    const banner = document.getElementById('lock-banner');
+    const text = document.getElementById('lock-banner-text');
+    if (banner && text) {
+        text.textContent = '⚠️ This database is also open by ' +
+            lockInfo.user + ' on ' + lockInfo.hostname +
+            '. Concurrent writes to SQLite may cause errors. Consider coordinating or upgrading to the multi-user edition.';
+        banner.style.display = '';
+    }
+}
+
+function dismissLockBanner() {
+    const banner = document.getElementById('lock-banner');
+    if (banner) banner.style.display = 'none';
+}
+
 // --- Init ---
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1784,6 +2041,9 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjects();
 
     showPanel('empty');
+
+    // Load database indicator (non-blocking)
+    loadDatabaseInfo();
 
     // Check for updates after a short delay (non-blocking)
     setTimeout(checkForUpdates, 3000);

@@ -15,6 +15,10 @@
             <span class="brand-name">DCT-OS</span>
             <span class="brand-version">v{{ version }}</span>
         </div>
+        <div id="db-indicator" onclick="openDatabaseDialog()" data-tip="Switch database or open a shared file" data-tip-pos="below">
+            <span class="db-dot" id="db-dot"></span>
+            <span class="db-name" id="db-name">Local</span>
+        </div>
         <div id="active-project">
             <span id="active-project-name">Select a project</span>
         </div>
@@ -184,6 +188,11 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <div id="lock-banner" class="lock-banner" style="display:none">
+        <span id="lock-banner-text"></span>
+        <button class="update-dismiss" onclick="dismissLockBanner()">&times;</button>
     </div>
 
     <div id="update-banner" class="update-banner" style="display:none">

@@ -25,9 +25,12 @@ def get_db():
 
 
 def close_db(e=None):
-    db = g.pop("db", None)
-    if db is not None:
-        db.close()
+    try:
+        db = g.pop("db", None)
+        if db is not None:
+            db.close()
+    except RuntimeError:
+        pass  # Outside request context (e.g. during db switch)
 
 
 # ---------------------------------------------------------------------------
@@ -188,8 +191,13 @@ def get_update_info():
 # App init
 # ---------------------------------------------------------------------------
 
-def init_app(app):
-    app.teardown_appcontext(close_db)
+def init_db_for_path(app, db_path, seed=True):
+    """Initialize a database at the given path (migrations + optional seed).
+
+    Used both at startup and when switching databases at runtime.
+    Set seed=False when creating a blank user database.
+    """
+    app.config["DATABASE"] = str(db_path)
     with app.app_context():
         db = get_db()
         current, final, applied = run_migrations(db)
@@ -199,9 +207,17 @@ def init_app(app):
                 current, final, applied,
             )
 
-        if not os.environ.get("DCT_NO_SEED", "").lower() in ("1", "true", "yes"):
+        if seed and not os.environ.get("DCT_NO_SEED", "").lower() in ("1", "true", "yes"):
             seed_db()
 
-        # Non-blocking version check (skip in testing)
-        if not app.config.get("TESTING"):
-            check_for_updates()
+        close_db()
+
+
+def init_app(app):
+    app.teardown_appcontext(close_db)
+
+    init_db_for_path(app, app.config["DATABASE"])
+
+    # Non-blocking version check (skip in testing)
+    if not app.config.get("TESTING"):
+        check_for_updates()

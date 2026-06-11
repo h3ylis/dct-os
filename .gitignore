@@ -45,6 +45,7 @@ Desktop.ini
 *.db-journal
 *.db-wal
 *.db-shm
+*.db.lock
 
 # Flask instance folder
 instance/
