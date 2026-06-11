@@ -2,18 +2,23 @@
 
 Thanks for your interest in contributing to DCT-OS.
 
-## Before You Submit a Pull Request
+## Contributor License Agreement
 
-A Contributor Licence Agreement (CLA) is currently being configured via [CLA Assistant](https://cla-assistant.io/). Until the CLA is in place, we cannot merge pull requests.
-
-**In the meantime, please open an issue first** to discuss any proposed changes. This ensures your contribution aligns with the project direction and avoids wasted effort.
+All contributions require a signed [Contributor License Agreement](CLA.md). It's automated and painless: when you open your first pull request, the CLA bot will prompt you — post the sign-off comment it asks for and you're done, once, forever. PRs can't merge until all authors have signed.
 
 ## How to Contribute
 
 1. **Open an issue** describing the bug, feature, or improvement you have in mind.
-2. **Discuss** the approach with the maintainers before writing code.
-3. Once the CLA is live, **fork the repo**, make your changes, and submit a pull request.
-4. **Sign the CLA** when prompted on your first PR — it's a one-time process via GitHub OAuth.
+2. **Discuss** the approach with the maintainers before writing code — this avoids wasted effort on changes that don't fit the project direction.
+3. **Fork the repo**, make your changes, and submit a pull request.
+4. **Sign the CLA** when the bot prompts you on your first PR.
+
+## What makes a good PR
+
+- Tests pass (`pytest tests/`) and new behaviour has new tests
+- Code matches the surrounding style — plain Flask, vanilla JS, no new frameworks
+- No new dependencies without prior discussion in an issue
+- One change per PR
 
 ## Code of Conduct
 

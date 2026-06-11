@@ -211,7 +211,7 @@ For commercial licensing enquiries: **astral2@gmx.de**
 
 ## Contributing
 
-We welcome contributions. A Contributor Licence Agreement (CLA) is being configured — please open an issue for discussion before submitting pull requests.
+We welcome contributions. All contributions require a signed [Contributor License Agreement](CLA.md) — the CLA bot prompts you automatically on your first pull request, and signing is a one-time comment.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
