@@ -39,7 +39,7 @@ body {
     padding: 0 16px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    gap: 24px;
+    gap: 20px;
     z-index: 100;
 }
 
@@ -48,6 +48,9 @@ body {
     align-items: baseline;
     gap: 6px;
     flex-shrink: 0;
+    /* Brand occupies the sidebar's width so the nav tabs start exactly
+       at the sidebar/content separator, aligned with the panel content */
+    width: calc(var(--sidebar-width) - 16px);
 }
 
 .brand-name {
@@ -492,11 +495,19 @@ body {
     border-bottom: 1px solid var(--border);
 }
 
-/* Stats nested inside a panel toolbar lose their own chrome */
+/* Stats nested inside a panel toolbar lose their own chrome and gain a
+   divider separating the info zone from the action zone */
 .panel-toolbar .stats-bar {
-    padding: 0;
+    padding: 0 20px 0 0;
     border-bottom: none;
+    border-right: 1px solid var(--border);
     background: transparent;
+}
+
+/* Primary action in a toolbar: slightly more compact so it sits naturally
+   beside the stats instead of dominating them */
+.panel-toolbar > .btn-primary {
+    padding: 6px 14px;
 }
 
 /* Dropdown menu (rarely-used actions) */
