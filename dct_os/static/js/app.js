@@ -434,7 +434,8 @@ async function loadPurchaseOrders() {
 
 function initResourcesGrid() {
     const columnDefs = [
-        { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
+        { field: 'description', headerName: 'Item', flex: 1, minWidth: 200,
+            headerTooltip: 'What the resource is (e.g. 20T Excavator, Plant Operator)' },
         { field: 'unit', headerName: 'Unit', width: 80,
             headerTooltip: 'Unit of measure (Hr, Day, Tonne, m3, etc.)' },
         { field: 'supplier_name', headerName: 'Supplier', width: 200 },
@@ -754,7 +755,7 @@ function openResourceDialog(existing) {
     const e = existing || {};
     const html = `
         <div class="form-group">
-            <label data-tip="Name of the resource (e.g. 20T Excavator, Plant Operator)" data-tip-pos="below">Description *</label>
+            <label data-tip="What the resource is (e.g. 20T Excavator, Plant Operator)" data-tip-pos="below">Item *</label>
             <input type="text" id="f-res-desc" value="${esc(e.description || '')}">
         </div>
         <div class="form-row">
@@ -787,7 +788,7 @@ function openResourceDialog(existing) {
                 standard_rate: parseFloat(document.getElementById('f-res-rate').value) || 0,
                 category: document.getElementById('f-res-category').value || null,
             };
-            if (!body.description || !body.unit) { toast('Description and unit are required', 'error'); throw new Error('validation'); }
+            if (!body.description || !body.unit) { toast('Item and unit are required', 'error'); throw new Error('validation'); }
             if (existing) {
                 await apiRequest('PUT', `/api/resources/${existing.id}`, body);
             } else {

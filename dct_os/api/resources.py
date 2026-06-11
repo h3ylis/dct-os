@@ -122,7 +122,7 @@ def export_resources_csv():
     db = get_db()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Description", "Unit", "Supplier", "Standard Rate", "Category"])
+    writer.writerow(["Item", "Unit", "Supplier", "Standard Rate", "Category"])
     for r in _all_resources(db):
         writer.writerow([
             r["description"], r["unit"], r["supplier_name"] or "",
@@ -143,7 +143,7 @@ def export_resources_xlsx():
     db = get_db()
     wb, ws = _xlsx_workbook(
         "Resources",
-        ["Description", "Unit", "Supplier", "Standard Rate", "Category"],
+        ["Item", "Unit", "Supplier", "Standard Rate", "Category"],
         currency_cols=[4],
     )
     for r in _all_resources(db):
@@ -184,7 +184,7 @@ def import_resources_csv():
     header_map = {}
     for h in reader.fieldnames:
         n = norm(h)
-        if n == "description":
+        if n in ("item", "description"):
             header_map["description"] = h
         elif n == "unit":
             header_map["unit"] = h
@@ -196,7 +196,7 @@ def import_resources_csv():
             header_map["category"] = h
 
     if "description" not in header_map or "unit" not in header_map:
-        return jsonify({"error": "CSV must have Description and Unit columns"}), 400
+        return jsonify({"error": "CSV must have Item (or Description) and Unit columns"}), 400
 
     existing = {
         ((r["description"] or "").strip().lower(),

@@ -1050,7 +1050,7 @@ def test_resources_export_csv(client):
     assert resp.status_code == 200
     assert "text/csv" in resp.content_type
     lines = resp.data.decode("utf-8").strip().split("\n")
-    assert "Description" in lines[0]
+    assert "Item" in lines[0]
     assert len(lines) > 1  # seed resources present
 
 
