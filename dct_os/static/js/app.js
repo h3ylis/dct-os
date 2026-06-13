@@ -999,7 +999,7 @@ function addDocketLine(data) {
         <td class="col-res"><select id="ln-res-${idx}" onchange="onLineResourceChange(${idx})" title="Resource">
             <option value="">--</option>${resOpts}
         </select></td>
-        <td class="col-desc"><input type="text" id="ln-desc-${idx}" value="${esc(d.description || '')}" placeholder="${esc((d.resource_id && (cachedResources.find(r => r.id === d.resource_id) || {}).description) || 'Description')}"><input type="hidden" id="ln-rate-${idx}" value="${d.rate || ''}"></td>
+        <td class="col-desc"><input type="text" id="ln-desc-${idx}" value="${esc(d.description || '')}" placeholder="${esc((d.resource_id && (r => r && (r.details || r.description))(cachedResources.find(r => r.id === d.resource_id))) || 'Description')}"><input type="hidden" id="ln-rate-${idx}" value="${d.rate || ''}"></td>
         <td class="col-qty"><input type="number" id="ln-qty-${idx}" step="0.01" value="${d.qty || ''}" placeholder="0"></td>
         <td class="col-unit"><input type="text" id="ln-unit-${idx}" value="${esc(d.unit || '')}" placeholder="Hr"></td>
         <td class="col-rm"><button class="btn-line-remove" onclick="removeDocketLine(${idx})" title="Remove line">&times;</button></td>
@@ -1071,9 +1071,11 @@ function onLineResourceChange(idx) {
     const unitEl = document.getElementById(`ln-unit-${idx}`);
     const rateEl = document.getElementById(`ln-rate-${idx}`);
 
-    // Don't duplicate the resource name into Description — show it as a
-    // placeholder; the field is for extra detail (e.g. "wet hire, north end")
-    descEl.placeholder = res.description;
+    // Auto-fill the line Description from the resource's Description (its
+    // make/model detail) — but never clobber detail the user has typed.
+    // Fall back to the item name as a placeholder when there's no detail.
+    if (!descEl.value) descEl.value = res.details || '';
+    descEl.placeholder = res.details || res.description;
     unitEl.value = res.unit;
     // Rate is applied silently from the resource — dockets carry quantities
     // only; rates are confirmed at invoice review in the summary report.

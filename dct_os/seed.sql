@@ -230,3 +230,12 @@ INSERT INTO docket_headers (project_id, purchase_order_id, supplier_name, date, 
 (1, 8, 'Greenfield Environmental', '2025-03-18', 'GFE-0007');
 INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, description, qty, unit, rate, amount, sort_order) VALUES
 (18, 7, 8, 19, 'Erosion Control', 1, 'LS', 3200.00, 3200.00, 0);
+
+-- The lines above were written with description = item name (legacy). Pull
+-- each line's description from its resource's Description (make/model detail)
+-- so the demo reflects how docket entry now auto-fills it. Lines whose
+-- resource has no detail (Labour, Mobilisation, etc.) are left blank — the
+-- Item still shows in the Resource column.
+UPDATE docket_lines
+SET description = (SELECT details FROM resources WHERE resources.id = docket_lines.resource_id)
+WHERE resource_id IS NOT NULL;
