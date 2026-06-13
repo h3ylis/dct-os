@@ -163,12 +163,6 @@ async function refreshProjectData() {
     }
 }
 
-function supplierDatalistHtml() {
-    return '<datalist id="supplier-options">' +
-        cachedSuppliers.map(s => '<option value="' + esc(s) + '">').join('') +
-        '</datalist>';
-}
-
 // --- Panels ---
 
 function showPanel(name) {
@@ -710,9 +704,8 @@ function openPurchaseOrderDialog(existing) {
             </div>
         </div>
         <div class="form-group">
-            <label data-tip="The supplier this purchase order is issued to" data-tip-pos="below">Supplier</label>
-            <input type="text" id="f-po-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options">
-            ${supplierDatalistHtml()}
+            <label data-tip="Type the supplier — names you've used autocomplete; a new one is saved as you type" data-tip-pos="below">Supplier</label>
+            <input type="text" id="f-po-supplier" value="${esc(e.supplier_name || '')}" oninput="supplierAutocomplete(event)" autocomplete="off" placeholder="Type a supplier name">
         </div>
         <div class="form-row">
             <div class="form-group">
@@ -781,9 +774,8 @@ function openResourceDialog(existing) {
             </div>
         </div>
         <div class="form-group">
-            <label data-tip="The supplier who provides this resource (optional)" data-tip-pos="below">Supplier</label>
-            <input type="text" id="f-res-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options">
-            ${supplierDatalistHtml()}
+            <label data-tip="The supplier who provides this resource (optional) — type a new one or autocomplete an existing" data-tip-pos="below">Supplier</label>
+            <input type="text" id="f-res-supplier" value="${esc(e.supplier_name || '')}" oninput="supplierAutocomplete(event)" autocomplete="off" placeholder="Type a supplier name">
         </div>
         <div class="form-group">
             <label data-tip="Groups resources in the summary report (e.g. Plant, Labour, Materials)" data-tip-pos="below">Category</label>
@@ -1325,10 +1317,12 @@ function onDocketPOChange() {
     }
 }
 
-// Inline type-ahead on the supplier field — type "Bla" and it completes to
+// Inline type-ahead for any supplier field — type "Bla" and it completes to
 // "Blacksoil Earthmoving" with the rest selected; Tab/→/End accepts, any
-// other key replaces. Stays on the keyboard, no mouse needed.
-function onSupplierInput(event) {
+// other key replaces. A brand-new supplier just keeps typing (no match, no
+// completion) and is saved as-is — supplier is free text, the suggestions
+// are only a convenience. Stays on the keyboard, no mouse needed.
+function supplierAutocomplete(event) {
     const el = event.target;
     const deleting = event.inputType && event.inputType.startsWith('delete');
     const typed = el.value;
@@ -1341,6 +1335,11 @@ function onSupplierInput(event) {
             el.setSelectionRange(typed.length, match.length);
         }
     }
+}
+
+// Docket supplier also re-filters the PO list and resource dropdowns
+function onSupplierInput(event) {
+    supplierAutocomplete(event);
     filterDocketPOs();
     refreshResourceDropdowns();
 }
