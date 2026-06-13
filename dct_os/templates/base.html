@@ -16,12 +16,12 @@
             <span class="brand-version">v{{ version }}</span>
         </div>
         <nav id="header-nav">
-            <button class="nav-btn" onclick="showPanel('dockets')" id="tab-dockets" data-tip="Source documents entered against work orders and cost codes">Dockets</button>
-            <button class="nav-btn" onclick="showPanel('cost-codes')" id="tab-cost-codes" data-tip="Internal budget line items for this project">Cost Codes</button>
-            <button class="nav-btn" onclick="showPanel('work-orders')" id="tab-work-orders" data-tip="Client-facing scope items that group docket entries">Work Orders</button>
-            <button class="nav-btn" onclick="showPanel('purchase-orders')" id="tab-purchase-orders" data-tip="Financial commitments to suppliers with drawdown tracking">Purchase Orders</button>
-            <button class="nav-btn" onclick="showPanel('resources')" id="tab-resources" data-tip="Reusable plant, labour, and materials with standard rates">Resources</button>
-            <button class="nav-btn" onclick="showPanel('reports')" id="tab-reports" data-tip="Summarise docket spend by supplier for claiming">Reports</button>
+            <button class="nav-btn" onclick="showPanel('dockets')" id="tab-dockets" data-tip="Alt+Shift+D — new docket&#10;Source documents entered against work orders and cost codes" data-tip-pos="below">Dockets</button>
+            <button class="nav-btn" onclick="showPanel('cost-codes')" id="tab-cost-codes" data-tip="Alt+Shift+C — new cost code&#10;Internal budget line items for this project" data-tip-pos="below">Cost Codes</button>
+            <button class="nav-btn" onclick="showPanel('work-orders')" id="tab-work-orders" data-tip="Alt+Shift+W — new work order&#10;Client-facing scope items that group docket entries" data-tip-pos="below">Work Orders</button>
+            <button class="nav-btn" onclick="showPanel('purchase-orders')" id="tab-purchase-orders" data-tip="Alt+Shift+P — new purchase order&#10;Financial commitments to suppliers with drawdown tracking" data-tip-pos="below">Purchase Orders</button>
+            <button class="nav-btn" onclick="showPanel('resources')" id="tab-resources" data-tip="Alt+Shift+R — new resource&#10;Reusable plant, labour, and materials with standard rates" data-tip-pos="below">Resources</button>
+            <button class="nav-btn" onclick="showPanel('reports')" id="tab-reports" data-tip="Summarise docket spend by supplier for claiming" data-tip-pos="below">Reports</button>
         </nav>
         <div id="header-right">
             <div id="db-indicator" onclick="openDatabaseDialog()" data-tip="Switch database or open a shared file" data-tip-pos="below">
