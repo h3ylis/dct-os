@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 
-from dct_os.db import get_db
+from dct_os.db import get_db, register_supplier
 
 bp = Blueprint("purchase_orders", __name__)
 
@@ -55,7 +55,7 @@ def create_purchase_order(project_id):
         (
             project_id,
             data["number"],
-            data.get("supplier_name"),
+            register_supplier(db, data.get("supplier_name")),
             data.get("value", 0),
             data.get("raised_date"),
             data.get("is_active", 1),
@@ -81,6 +81,8 @@ def update_purchase_order(po_id):
     updates = {f: data[f] for f in fields if f in data}
     if not updates:
         return jsonify({"error": "No valid fields to update"}), 400
+    if "supplier_name" in updates:
+        updates["supplier_name"] = register_supplier(db, updates["supplier_name"])
 
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     set_clause += ", updated_at = datetime('now')"

@@ -29,7 +29,7 @@ curl -X POST http://localhost:5000/api/projects/1/dockets \
 | DELETE | `/api/projects/<id>` | Delete a project and all its child data (cascades). |
 | GET | `/api/projects/<id>/summary` | Docket count, total spend, supplier count. |
 | GET | `/api/projects/<id>/cost-report` | Per-cost-code budget vs actual vs variance. |
-| GET | `/api/projects/<id>/suppliers` | Distinct supplier names used in this project. |
+| GET | `/api/projects/<id>/suppliers` | The canonical supplier list (from the `suppliers` reference table — the source of truth shared across all screens). Supplier names entered on dockets, POs, and resources are resolved to their canonical spelling and added here automatically. |
 
 ## Cost Codes
 

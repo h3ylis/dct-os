@@ -3,7 +3,7 @@ import io
 
 from flask import Blueprint, Response, jsonify, request
 
-from dct_os.db import get_db
+from dct_os.db import get_db, register_supplier
 
 bp = Blueprint("dockets", __name__)
 
@@ -106,7 +106,7 @@ def create_docket(project_id):
         (
             project_id,
             data.get("purchase_order_id"),
-            data.get("supplier_name"),
+            register_supplier(db, data.get("supplier_name")),
             data["date"],
             data.get("docket_number"),
             data.get("notes"),
@@ -159,6 +159,8 @@ def update_docket(docket_id):
         "docket_number", "notes", "source_hash", "source_filename",
     ]
     updates = {f: data[f] for f in header_fields if f in data}
+    if "supplier_name" in updates:
+        updates["supplier_name"] = register_supplier(db, updates["supplier_name"])
     if updates:
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         set_clause += ", updated_at = datetime('now')"
@@ -247,21 +249,13 @@ def cost_report(project_id):
 
 @bp.route("/projects/<int:project_id>/suppliers", methods=["GET"])
 def list_project_suppliers(project_id):
-    """Distinct supplier names from POs, docket headers, and resources."""
+    """The canonical supplier list — the suppliers reference table is the
+    single source of truth shared across every screen and project.
+    (project_id is kept in the route for client compatibility.)
+    """
     db = get_db()
     rows = db.execute(
-        """SELECT DISTINCT name FROM (
-               SELECT supplier_name AS name
-               FROM purchase_orders WHERE project_id = ? AND supplier_name IS NOT NULL
-               UNION
-               SELECT supplier_name AS name
-               FROM docket_headers WHERE project_id = ? AND supplier_name IS NOT NULL
-               UNION
-               SELECT supplier_name AS name
-               FROM resources WHERE supplier_name IS NOT NULL
-           ) sub
-           ORDER BY name COLLATE NOCASE""",
-        (project_id, project_id),
+        "SELECT name FROM suppliers ORDER BY name COLLATE NOCASE"
     ).fetchall()
     return jsonify([r["name"] for r in rows])
 
@@ -460,7 +454,7 @@ def rerate_lines(project_id):
             (
                 add_resource["description"],
                 add_resource["unit"],
-                add_resource.get("supplier_name"),
+                register_supplier(db, add_resource.get("supplier_name")),
                 new_rate,
                 add_resource.get("category"),
             ),
@@ -887,7 +881,7 @@ def import_dockets_csv(project_id):
                (project_id, purchase_order_id, supplier_name, date,
                 docket_number, notes)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (project_id, po_id, grp["supplier_name"], grp["date"],
+            (project_id, po_id, register_supplier(db, grp["supplier_name"]), grp["date"],
              grp["docket_number"], grp["notes"]),
         )
         header_id = cur.lastrowid

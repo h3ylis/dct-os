@@ -3,7 +3,7 @@ import io
 
 from flask import Blueprint, Response, jsonify, request
 
-from dct_os.db import get_db
+from dct_os.db import get_db, register_supplier
 
 bp = Blueprint("resources", __name__)
 
@@ -46,7 +46,7 @@ def create_resource():
             data["description"],
             data.get("details"),
             data["unit"],
-            data.get("supplier_name"),
+            register_supplier(db, data.get("supplier_name")),
             data.get("standard_rate", 0),
             data.get("category"),
         ),
@@ -72,6 +72,8 @@ def update_resource(resource_id):
     updates = {f: data[f] for f in fields if f in data}
     if not updates:
         return jsonify({"error": "No valid fields to update"}), 400
+    if "supplier_name" in updates:
+        updates["supplier_name"] = register_supplier(db, updates["supplier_name"])
 
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     set_clause += ", updated_at = datetime('now')"
@@ -226,6 +228,7 @@ def import_resources_csv():
             skipped += 1
             continue
         supplier = (row.get(header_map.get("supplier_name", ""), "") or "").strip() or None
+        supplier = register_supplier(db, supplier)
         key = (desc.lower(), (supplier or "").lower())
         if key in existing:
             skipped += 1

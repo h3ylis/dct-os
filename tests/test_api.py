@@ -1147,6 +1147,42 @@ def test_resources_import_legacy_description_only(client):
     assert pump["details"] is None
 
 
+def test_supplier_registered_from_po(client):
+    """A new supplier typed on a PO joins the suppliers source-of-truth list."""
+    before = json.loads(client.get("/api/projects/1/suppliers").data)
+    assert "Zephyr Plant Hire" not in before
+
+    client.post("/api/projects/1/purchase-orders", json={
+        "number": "PO-NEW-1", "supplier_name": "Zephyr Plant Hire", "value": 1000,
+    }, content_type="application/json")
+
+    after = json.loads(client.get("/api/projects/1/suppliers").data)
+    assert "Zephyr Plant Hire" in after
+
+
+def test_supplier_name_canonicalised(client):
+    """Typing a different-case variant resolves to the stored canonical name."""
+    # 'Ironbark Quarries' is in the seed; enter a lowercase variant on a PO
+    po = json.loads(client.post("/api/projects/1/purchase-orders", json={
+        "number": "PO-NEW-2", "supplier_name": "ironbark quarries", "value": 500,
+    }, content_type="application/json").data)
+    assert po["supplier_name"] == "Ironbark Quarries"  # canonical spelling, not the typed case
+
+    # And no duplicate variant was added to the list
+    suppliers = json.loads(client.get("/api/projects/1/suppliers").data)
+    assert suppliers.count("Ironbark Quarries") == 1
+    assert "ironbark quarries" not in suppliers
+
+
+def test_resource_supplier_registered(client):
+    res = json.loads(client.post("/api/resources", json={
+        "description": "Crane 50T", "unit": "Day", "supplier_name": "Skyhook Cranes",
+    }, content_type="application/json").data)
+    assert res["supplier_name"] == "Skyhook Cranes"
+    suppliers = json.loads(client.get("/api/projects/1/suppliers").data)
+    assert "Skyhook Cranes" in suppliers
+
+
 def test_resources_import_requires_columns(client):
     resp = client.post("/api/resources/import-csv",
                        json={"csv_text": "Name,Price\nThing,5\n"},

@@ -239,3 +239,16 @@ INSERT INTO docket_lines (docket_id, work_order_id, cost_code_id, resource_id, d
 UPDATE docket_lines
 SET description = (SELECT details FROM resources WHERE resources.id = docket_lines.resource_id)
 WHERE resource_id IS NOT NULL;
+
+-- Populate the suppliers reference table from the seeded names (migration 003
+-- backfills existing databases; this covers a fresh seed where the migration
+-- ran before any data existed).
+INSERT OR IGNORE INTO suppliers (name)
+SELECT DISTINCT name FROM (
+    SELECT supplier_name AS name FROM purchase_orders
+        WHERE supplier_name IS NOT NULL AND TRIM(supplier_name) <> ''
+    UNION SELECT supplier_name FROM docket_headers
+        WHERE supplier_name IS NOT NULL AND TRIM(supplier_name) <> ''
+    UNION SELECT supplier_name FROM resources
+        WHERE supplier_name IS NOT NULL AND TRIM(supplier_name) <> ''
+);

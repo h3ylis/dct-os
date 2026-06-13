@@ -139,6 +139,26 @@ def seed_db():
         db.executescript(SEED_PATH.read_text())
 
 
+def register_supplier(db, name):
+    """Resolve a typed supplier name to its canonical spelling, adding it to
+    the suppliers reference table if new. Returns the canonical name (or None
+    for blank input). Keeps supplier names consistent everywhere without a
+    foreign key. Caller is responsible for committing.
+    """
+    if not name:
+        return None
+    name = name.strip()
+    if not name:
+        return None
+    existing = db.execute(
+        "SELECT name FROM suppliers WHERE name = ? COLLATE NOCASE", (name,)
+    ).fetchone()
+    if existing:
+        return existing[0]
+    db.execute("INSERT OR IGNORE INTO suppliers (name) VALUES (?)", (name,))
+    return name
+
+
 # ---------------------------------------------------------------------------
 # Version check (non-blocking, cached)
 # ---------------------------------------------------------------------------
