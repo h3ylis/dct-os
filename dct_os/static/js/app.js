@@ -485,8 +485,14 @@ function openModal(title, html, context, wide) {
     // Show/hide delete button
     const delBtn = document.getElementById('modal-delete');
     if (delBtn) delBtn.style.display = context && context.onDelete ? '' : 'none';
-    const first = document.querySelector('.modal-body input, .modal-body select');
-    if (first) first.focus();
+    // Focus the first field the user can actually see — skip hidden and file
+    // inputs (the docket modal leads with a hidden folder picker).
+    const fields = document.querySelectorAll('.modal-body input, .modal-body select, .modal-body textarea');
+    for (const f of fields) {
+        if (f.type === 'hidden' || f.type === 'file' || f.offsetParent === null) continue;
+        f.focus();
+        break;
+    }
 }
 
 function closeModal(event) {
@@ -973,6 +979,10 @@ function openDocketDialog(existing) {
             if (icon) icon.style.opacity = '0.4';
         }
     }
+
+    // Focus the first real field. openModal's auto-focus lands on the hidden
+    // folder-input here, so put the cursor on Date explicitly.
+    document.getElementById('f-dk-date')?.focus();
 }
 
 function addDocketLine(data) {
