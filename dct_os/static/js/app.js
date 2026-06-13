@@ -973,6 +973,21 @@ function openDocketDialog(existing) {
 }
 
 function addDocketLine(data) {
+    // Fresh line (no data) carries the WO + CC down from the last line — the
+    // fast repeat-entry feel from earlier DCT versions. Explicit data (editing
+    // an existing docket) is used as-is.
+    if (!data) {
+        const rows = document.querySelectorAll('#docket-lines-body tr');
+        if (rows.length) {
+            const last = rows[rows.length - 1].id.replace('dkline-', '');
+            const woEl = document.getElementById(`ln-wo-${last}`);
+            const ccEl = document.getElementById(`ln-cc-${last}`);
+            data = {
+                work_order_id: woEl && woEl.value ? parseInt(woEl.value) : null,
+                cost_code_id: ccEl && ccEl.value ? parseInt(ccEl.value) : null,
+            };
+        }
+    }
     const idx = docketLineCounter++;
     const d = data || {};
 
@@ -997,17 +1012,41 @@ function addDocketLine(data) {
             <option value="">--</option>${ccOpts}
         </select></td>
         <td class="col-res"><select id="ln-res-${idx}" onchange="onLineResourceChange(${idx})" title="Resource">
-            <option value="">--</option>${resOpts}
+            <option value="">--</option>
+            <option value="__new__">+ New item…</option>${resOpts}
         </select></td>
-        <td class="col-desc"><input type="text" id="ln-desc-${idx}" value="${esc(d.description || '')}" placeholder="${esc((d.resource_id && (r => r && (r.details || r.description))(cachedResources.find(r => r.id === d.resource_id))) || 'Description')}"><input type="hidden" id="ln-rate-${idx}" value="${d.rate || ''}"></td>
-        <td class="col-qty"><input type="number" id="ln-qty-${idx}" step="0.01" value="${d.qty || ''}" placeholder="0"></td>
-        <td class="col-unit"><input type="text" id="ln-unit-${idx}" value="${esc(d.unit || '')}" placeholder="Hr"></td>
+        <td class="col-desc"><input type="text" id="ln-desc-${idx}" value="${esc(d.description || '')}" onblur="onLineDescBlur(${idx})" placeholder="${esc((d.resource_id && (r => r && (r.details || r.description))(cachedResources.find(r => r.id === d.resource_id))) || 'Description')}"><input type="hidden" id="ln-rate-${idx}" value="${d.rate || ''}"></td>
+        <td class="col-qty"><input type="number" id="ln-qty-${idx}" step="0.01" value="${d.qty || ''}" placeholder="0" onkeydown="onLineKeydown(event, ${idx})"></td>
+        <td class="col-unit"><input type="text" id="ln-unit-${idx}" value="${esc(d.unit || '')}" placeholder="Hr" onkeydown="onLineKeydown(event, ${idx})"></td>
         <td class="col-rm"><button class="btn-line-remove" onclick="removeDocketLine(${idx})" title="Remove line">&times;</button></td>
     `;
     document.getElementById('docket-lines-body').appendChild(tr);
 
+    // Baseline for the "update resource description?" prompt
+    const descEl = document.getElementById(`ln-desc-${idx}`);
+    if (d.resource_id) {
+        const r = cachedResources.find(x => x.id === d.resource_id);
+        descEl.dataset.resdetails = (r && r.details) || '';
+    }
+
     if (d.work_order_id) {
         onLineWOChange(idx);
+    }
+}
+
+// Enter in the last line's Qty/Unit adds a new line (carrying WO+CC) and
+// jumps to it — keyboard-driven repeat entry.
+function onLineKeydown(event, idx) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const rows = document.querySelectorAll('#docket-lines-body tr');
+    const isLast = rows.length && rows[rows.length - 1].id === `dkline-${idx}`;
+    if (isLast) {
+        addDocketLine();
+        const newRows = document.querySelectorAll('#docket-lines-body tr');
+        const newIdx = newRows[newRows.length - 1].id.replace('dkline-', '');
+        const focusEl = document.getElementById(`ln-qty-${newIdx}`);
+        if (focusEl) focusEl.focus();
     }
 }
 
@@ -1057,17 +1096,28 @@ function refreshResourceDropdowns() {
         const resSelect = tr.querySelector('select[id^="ln-res-"]');
         if (!resSelect) return;
         const currentVal = parseInt(resSelect.value) || null;
-        resSelect.innerHTML = '<option value="">--</option>' + getFilteredResourceOpts(currentVal);
+        resSelect.innerHTML = '<option value="">--</option>' +
+            '<option value="__new__">+ New item…</option>' +
+            getFilteredResourceOpts(currentVal);
     });
 }
 
 function onLineResourceChange(idx) {
-    const resId = parseInt(document.getElementById(`ln-res-${idx}`).value);
-    if (!resId) return;
+    const sel = document.getElementById(`ln-res-${idx}`);
+
+    // "+ New item…" — capture a brand-new resource without leaving the docket
+    if (sel.value === '__new__') {
+        sel.value = '';
+        openQuickAddResource(idx);
+        return;
+    }
+
+    const resId = parseInt(sel.value);
+    const descEl = document.getElementById(`ln-desc-${idx}`);
+    if (!resId) { if (descEl) delete descEl.dataset.resdetails; return; }
     const res = cachedResources.find(r => r.id === resId);
     if (!res) return;
 
-    const descEl = document.getElementById(`ln-desc-${idx}`);
     const unitEl = document.getElementById(`ln-unit-${idx}`);
     const rateEl = document.getElementById(`ln-rate-${idx}`);
 
@@ -1076,10 +1126,114 @@ function onLineResourceChange(idx) {
     // Fall back to the item name as a placeholder when there's no detail.
     if (!descEl.value) descEl.value = res.details || '';
     descEl.placeholder = res.details || res.description;
+    descEl.dataset.resdetails = res.details || '';  // baseline for #2 prompt
     unitEl.value = res.unit;
     // Rate is applied silently from the resource — dockets carry quantities
     // only; rates are confirmed at invoice review in the summary report.
     rateEl.value = res.standard_rate || '';
+}
+
+// #1 — quick-add a resource from a docket line, in an overlay above the
+// open docket so the in-progress docket is preserved.
+function openQuickAddResource(idx) {
+    closeRateGate();
+    const overlay = document.createElement('div');
+    overlay.id = 'rate-gate-overlay';
+    overlay.innerHTML =
+        '<div class="rate-gate" style="max-width:520px">' +
+        '<h3 style="margin:0 0 14px;font-size:16px">New resource</h3>' +
+        '<div class="form-group"><label>Item *</label>' +
+        '<input type="text" id="qa-item" placeholder="e.g. 30T Excavator"></div>' +
+        '<div class="form-group"><label>Description</label>' +
+        '<input type="text" id="qa-details" placeholder="e.g. Cat 330, tilt hitch, wet hire"></div>' +
+        '<div class="db-new-row">' +
+        '<div class="form-group" style="flex:1"><label>Unit *</label>' +
+        '<input type="text" id="qa-unit" placeholder="Hr, Day, Tonne…"></div>' +
+        '<div class="form-group" style="flex:1"><label>Standard Rate</label>' +
+        '<input type="number" id="qa-rate" step="0.01" value="0"></div></div>' +
+        '<div class="form-group"><label>Category</label>' +
+        '<input type="text" id="qa-category" placeholder="Plant, Labour, Materials…"></div>' +
+        '<div class="rate-gate-actions">' +
+        '<button class="btn rate-gate-cancel" id="qa-cancel">Cancel</button>' +
+        '<button class="btn btn-primary" id="qa-create">Add resource</button>' +
+        '</div></div>';
+    document.body.appendChild(overlay);
+
+    // Prefill Item from the line's typed description if there is one
+    const lineDesc = document.getElementById(`ln-desc-${idx}`);
+    if (lineDesc && lineDesc.value) document.getElementById('qa-item').value = lineDesc.value;
+    document.getElementById('qa-item').focus();
+
+    const supplier = document.getElementById('f-dk-supplier')?.value?.trim() || null;
+
+    document.getElementById('qa-cancel').onclick = closeRateGate;
+    document.getElementById('qa-create').onclick = async () => {
+        const item = document.getElementById('qa-item').value.trim();
+        const unit = document.getElementById('qa-unit').value.trim();
+        if (!item || !unit) { toast('Item and unit are required', 'error'); return; }
+        const body = {
+            description: item,
+            details: document.getElementById('qa-details').value.trim() || null,
+            unit: unit,
+            standard_rate: parseFloat(document.getElementById('qa-rate').value) || 0,
+            category: document.getElementById('qa-category').value.trim() || null,
+            supplier_name: supplier,
+        };
+        try {
+            const created = await apiRequest('POST', '/api/resources', body);
+            cachedResources = await apiFetch('/api/resources');
+            // Rebuild the line's dropdown to include + select the new item
+            const sel = document.getElementById(`ln-res-${idx}`);
+            sel.innerHTML = '<option value="">--</option>' +
+                '<option value="__new__">+ New item…</option>' +
+                getFilteredResourceOpts(created.id);
+            sel.value = String(created.id);
+            closeRateGate();
+            onLineResourceChange(idx);
+            toast('Added to resources: ' + item);
+        } catch (e) { /* apiRequest toasted */ }
+    };
+}
+
+// #2 — editing a line's Description (for a line tied to a resource) offers to
+// update the resource's stored Description too. Aliases are commercial.
+function onLineDescBlur(idx) {
+    const descEl = document.getElementById(`ln-desc-${idx}`);
+    const sel = document.getElementById(`ln-res-${idx}`);
+    if (!descEl || !sel) return;
+    const resId = parseInt(sel.value);
+    if (!resId) return;
+    const baseline = descEl.dataset.resdetails || '';
+    const val = descEl.value.trim();
+    if (!val || val === baseline) return;
+    if (document.getElementById('rate-gate-overlay')) return;  // a prompt is already up
+
+    const res = cachedResources.find(r => r.id === resId);
+    if (!res) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'rate-gate-overlay';
+    overlay.innerHTML =
+        '<div class="rate-gate">' +
+        '<p>Update the saved description for <strong>' + esc(res.description) + '</strong> to ' +
+        '“' + esc(val) + '”?</p>' +
+        '<div class="rate-gate-actions">' +
+        '<button class="btn rate-gate-cancel" id="dd-keep">Just this docket</button>' +
+        '<button class="btn btn-primary" id="dd-update">Update resource</button>' +
+        '</div></div>';
+    document.body.appendChild(overlay);
+
+    const settle = () => { descEl.dataset.resdetails = val; closeRateGate(); };
+    document.getElementById('dd-keep').onclick = settle;
+    document.getElementById('dd-update').onclick = async () => {
+        try {
+            await apiRequest('PUT', '/api/resources/' + resId, { details: val });
+            const r = cachedResources.find(x => x.id === resId);
+            if (r) r.details = val;
+            toast('Resource description updated');
+        } catch (e) { /* toasted */ }
+        settle();
+    };
 }
 
 function collectDocketLines() {
