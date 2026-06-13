@@ -863,9 +863,8 @@ function openDocketDialog(existing) {
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label data-tip="The supplier or subcontractor who performed the work" data-tip-pos="below">Supplier</label>
-                        <input type="text" id="f-dk-supplier" value="${esc(e.supplier_name || '')}" list="supplier-options" oninput="refreshResourceDropdowns()">
-                        ${supplierDatalistHtml()}
+                        <label data-tip="Type to autocomplete from your suppliers — press Tab or → to accept" data-tip-pos="below">Supplier</label>
+                        <input type="text" id="f-dk-supplier" value="${esc(e.supplier_name || '')}" oninput="onSupplierInput(event)" autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label data-tip="Link to a purchase order to track drawdown against committed spend" data-tip-pos="below">Purchase Order</label>
@@ -950,6 +949,10 @@ function openDocketDialog(existing) {
         ctx.deleteMsg = 'Docket deleted';
     }
     openModal(modalTitle, html, ctx, true);
+
+    // New docket with a supplier already typed → narrow the PO list. (Editing
+    // keeps the docket's saved PO selection untouched.)
+    if (!isEdit) filterDocketPOs();
 
     // Populate existing lines or add one empty line
     if (e.lines && e.lines.length > 0) {
@@ -1309,6 +1312,50 @@ function onDocketPOChange() {
     if (po && po.supplier_name) {
         supplierEl.value = po.supplier_name;
         refreshResourceDropdowns();
+    }
+}
+
+// Inline type-ahead on the supplier field — type "Bla" and it completes to
+// "Blacksoil Earthmoving" with the rest selected; Tab/→/End accepts, any
+// other key replaces. Stays on the keyboard, no mouse needed.
+function onSupplierInput(event) {
+    const el = event.target;
+    const deleting = event.inputType && event.inputType.startsWith('delete');
+    const typed = el.value;
+    if (!deleting && typed) {
+        const match = cachedSuppliers.find(
+            s => s.toLowerCase().startsWith(typed.toLowerCase())
+        );
+        if (match && match.length > typed.length) {
+            el.value = match;
+            el.setSelectionRange(typed.length, match.length);
+        }
+    }
+    filterDocketPOs();
+    refreshResourceDropdowns();
+}
+
+// Narrow the PO dropdown to the chosen supplier's active POs. Exactly one →
+// auto-select it; several → user picks; none → fall back to all active POs.
+function filterDocketPOs() {
+    const sel = document.getElementById('f-dk-po');
+    if (!sel) return;
+    const supplier = (document.getElementById('f-dk-supplier').value || '').trim().toLowerCase();
+    const current = sel.value;
+
+    let pos = cachedPurchaseOrders.filter(p => p.is_active);
+    if (supplier) {
+        const matched = pos.filter(p => (p.supplier_name || '').trim().toLowerCase() === supplier);
+        if (matched.length) pos = matched;
+    }
+
+    sel.innerHTML = '<option value="">-- Select PO --</option>' +
+        pos.map(p => `<option value="${p.id}">${esc(p.number)} — ${esc(p.supplier_name || '')}</option>`).join('');
+
+    if (supplier && pos.length === 1) {
+        sel.value = String(pos[0].id);
+    } else if (pos.some(p => String(p.id) === current)) {
+        sel.value = current;
     }
 }
 
@@ -2133,6 +2180,20 @@ function openHelpDialog() {
         <div class="help-section">
             <h4>Keyboard Shortcuts</h4>
             <dl>
+                <dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd></dt>
+                <dd>New <strong>D</strong>ocket</dd>
+                <dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></dt>
+                <dd>New <strong>P</strong>urchase Order</dd>
+                <dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd></dt>
+                <dd>New <strong>W</strong>ork Order</dd>
+                <dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd></dt>
+                <dd>New <strong>C</strong>ost Code</dd>
+                <dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd></dt>
+                <dd>New <strong>R</strong>esource</dd>
+                <dt><kbd>Enter</kbd></dt>
+                <dd>In a docket's last line (Qty/Unit), add the next line</dd>
+                <dt><kbd>Tab</kbd> / <kbd>→</kbd></dt>
+                <dd>Accept the supplier autocomplete suggestion</dd>
                 <dt><kbd>Esc</kbd></dt>
                 <dd>Close the current dialog</dd>
                 <dt><kbd>Double-click</kbd></dt>
@@ -2168,7 +2229,27 @@ document.addEventListener('click', () => {
 // --- Keyboard shortcuts ---
 
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') { closeRateGate(); closeModal(); return; }
+
+    // Quick-create shortcuts. Alt+Shift+<letter> — Ctrl+Shift+R and
+    // Ctrl+Shift+W are reserved by the browser (reload / close window), so
+    // Alt+Shift keeps one consistent, conflict-free modifier across all five.
+    if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        const overlayOpen = document.getElementById('modal-overlay').classList.contains('open')
+            || document.getElementById('rate-gate-overlay');
+        if (overlayOpen) return;  // don't stack dialogs
+        const needsProject = () => {
+            if (!activeProjectId) { toast('Select a project first', 'error'); return false; }
+            return true;
+        };
+        switch (e.key.toLowerCase()) {
+            case 'd': e.preventDefault(); if (needsProject()) openDocketDialog(); break;
+            case 'p': e.preventDefault(); if (needsProject()) openPurchaseOrderDialog(); break;
+            case 'w': e.preventDefault(); if (needsProject()) openWorkOrderDialog(); break;
+            case 'c': e.preventDefault(); if (needsProject()) openCostCodeDialog(); break;
+            case 'r': e.preventDefault(); openResourceDialog(); break;  // resources are global
+        }
+    }
 });
 
 // --- Version Check ---
