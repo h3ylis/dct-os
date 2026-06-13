@@ -2,9 +2,11 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
-## [1.0.0] - 2026-06-12
+## [1.0.0] - 2026-06-13
 
-### Added
+First full release. Everything below is in addition to the 0.x line.
+
+### Added — costing
 
 - **Rate review — the rate feedback loop.** Pricing knowledge enters DCT-OS
   where it enters real life: at invoice review. Rates in the Docket Summary
@@ -18,25 +20,50 @@ All notable changes to DCT-OS will be documented in this file.
   entry form — site paperwork doesn't carry prices, so you don't type any.
   Lines are valued automatically at the resource's standard rate as an
   estimate until invoice review confirms them.
-- **Backups.** A Backup button in the database dialog downloads a
-  timestamped snapshot of the current database. DCT-OS also keeps automatic
-  rotating backups (last 7) in a `backups/` folder next to your database.
-- **Excel export.** Dockets and the Docket Summary Report now export as
-  formatted `.xlsx` workbooks alongside CSV.
-- **Resources import/export.** Bring your existing rates list straight in:
-  the Resources tab imports CSV (flexible headers, duplicates skipped) and
-  exports CSV or Excel.
 - **Item + Description on resources.** A resource now has an Item (what it
   is — "Excavator 14T") and an optional Description (the detail — "Cat 314,
   rubber tracked, long arm") to help match the wording on dockets and
-  invoices that never quite agrees. Existing databases migrate
-  automatically; old CSV exports still import.
+  invoices that never quite agrees. The line Description auto-fills from the
+  selected resource. Existing databases migrate automatically.
+- **Suppliers source of truth.** A behind-the-scenes suppliers reference
+  table keeps names consistent everywhere — type a different-case variant
+  and it resolves to the canonical spelling, new names are remembered. No
+  management screen; supplier stays plain text on the entry forms.
+
+### Added — faster entry
+
+- **Quick-add a resource from a docket line** — pick "+ New item…" in the
+  resource dropdown and add it without leaving the docket.
+- **Supplier autocomplete** — inline type-ahead across docket, PO, and
+  resource forms; Tab or → accepts, new names type straight through.
+- **PO filtering** — the Purchase Order list narrows to the chosen
+  supplier's active POs and auto-selects when there's exactly one.
+- **Work Order + Cost Code carry-down** — a new line copies them from the
+  line above; Enter in the last line's Qty/Unit adds the next line.
+- **Keyboard shortcuts** — Alt+Shift+D / P / W / C / R to create a Docket,
+  Purchase Order, Work Order, Cost Code, or Resource.
+
+### Added — data & safety
+
+- **Backups.** A Backup button in the database dialog downloads a
+  timestamped snapshot. DCT-OS also keeps automatic rotating backups
+  (last 7) in a `backups/` folder next to your database.
+- **Excel export.** Dockets, the Docket Summary Report, and the Resources
+  list export as formatted `.xlsx` workbooks alongside CSV.
+- **Resources import.** Bring an existing rates list in from CSV (flexible
+  headers, duplicates skipped).
+- **API reference** at `docs/API.md`; a `SECURITY.md` policy; and a
+  Contributor License Agreement gated automatically on pull requests.
 
 ### Changed
 
-- Summary report rows are now split by exact rate (no more averaged rates)
-  so each row can be reviewed against the invoice independently.
-- GitHub Actions workflows updated to current action versions.
+- **Cleaner header and toolbars.** Navigation tabs sit beside the brand;
+  per-screen stats and the primary "+ Add" action share one row, with
+  occasional actions (import/export) tucked into a "Data" menu.
+- Summary report rows are split by exact rate (no more averaging) so each
+  can be reviewed against the invoice independently.
+- Opening a dialog focuses its first field; GitHub Actions updated to
+  current versions (Node 24).
 
 ## [0.3.0] - 2026-06-11
 
