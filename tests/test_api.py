@@ -189,10 +189,11 @@ def test_resources(client):
     resp = client.get("/api/resources")
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert len(data) == 25
+    assert len(data) == 48
     first = data[0]
     assert "description" in first
     assert "unit" in first
+    assert "details" in first
     assert "standard_rate" in first
 
 

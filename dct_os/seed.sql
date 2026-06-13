@@ -84,7 +84,30 @@ INSERT INTO resources (id, description, details, unit, supplier_name, standard_r
 (22, 'Mobilisation',               NULL,                                           'LS',    NULL,                        8500.00, 'Preliminaries'),
 (23, '10T Tipper (Blacksoil)',     'Hino FM tandem, wet hire',                     'Hr',    'Blacksoil Earthmoving',      130.00, 'Plant'),
 (24, '20T Excavator (Blacksoil)',  'Cat 320, tilt hitch + augers, wet hire',       'Hr',    'Blacksoil Earthmoving',      230.00, 'Plant'),
-(25, '20T Excavator (Hawk)',       'Volvo EC220, rubber tracked, long arm',        'Hr',    'Hawkridge Constructions',    225.00, 'Plant');
+(25, '20T Excavator (Hawk)',       'Volvo EC220, rubber tracked, long arm',        'Hr',    'Hawkridge Constructions',    225.00, 'Plant'),
+(26, 'Dozer',                      'Cat D6 XE, slope assist, wet hire',            'Hr',    'Blacksoil Earthmoving',      265.00, 'Plant'),
+(27, 'Padfoot Roller',             'Ammann 12t padfoot drum, wet hire',            'Day',   'Tablelands Equipment Hire',  320.00, 'Plant'),
+(28, 'Skid Steer',                 'Cat 246, 4-in-1 bucket + broom attachment',    'Hr',    'Hawkridge Constructions',    130.00, 'Plant'),
+(29, '5T Excavator',               'Kubota KX057, rubber tracked, tilt bucket',    'Hr',    'Hawkridge Constructions',    135.00, 'Plant'),
+(30, 'Semi Side Tipper',           'Kenworth + Hercules side tipper, 28t payload', 'Hr',    'Blacksoil Earthmoving',      165.00, 'Plant'),
+(31, 'Concrete Pump',              'Boom pump 32m, incl. operator',                'Hr',    'Valley Concrete Supply',     195.00, 'Plant'),
+(32, 'Light Tower',                'Solar/diesel hybrid, 4-mast LED',              'Day',   'Tablelands Equipment Hire',   85.00, 'Plant'),
+(33, 'Street Sweeper',             'Truck mounted, incl. operator',                'Hr',    'Tablelands Equipment Hire',  165.00, 'Plant'),
+(34, 'Vac Truck (NDD)',            '3000L hydro excavation, 2 operators',          'Hr',    'Hawkridge Constructions',    280.00, 'Plant'),
+(35, 'Float Transport',            'Low loader to 35t, incl. pilot vehicle',       'Hr',    'Big River Haulage',          185.00, 'Transport'),
+(36, 'Leading Hand',               NULL,                                           'Hr',    NULL,                         100.00, 'Labour'),
+(37, 'Pipelayer',                  'Incl. pipe laser certification',               'Hr',    NULL,                          98.00, 'Labour'),
+(38, '2 Person Crew - Night',      'Stop/slow, after-hours rates',                 'Hr',    'Clearway Traffic Services',  130.00, 'Traffic'),
+(39, 'TMP Preparation',            'Traffic management plan incl. permits',        'Ea',    'Clearway Traffic Services',  850.00, 'Traffic'),
+(40, 'AC14 Asphalt (Supplied)',    'Dense grade base course, ex plant',            'Tonne', 'Westvale Asphalt Pty Ltd',   215.00, 'Asphalt'),
+(41, 'AC10 Asphalt (Supplied)',    'Dense grade wearing course, ex plant',         'Tonne', 'Westvale Asphalt Pty Ltd',   228.00, 'Asphalt'),
+(42, 'Tack Coat Emulsion',         'CRS bitumen emulsion, applied',                'L',     'Westvale Asphalt Pty Ltd',     1.10, 'Asphalt'),
+(43, 'Geotextile',                 'Bidim A34 or equivalent, 2m rolls',            'm2',    'Ironbark Quarries',            4.50, 'Materials'),
+(44, '450 RCP Class 4',            'Spigot and socket, rubber ring joint',         'm',     'Monaro Precast & Pipe',      410.00, 'Drainage'),
+(45, '375 RCP Class 4',            'Spigot and socket, rubber ring joint',         'm',     'Monaro Precast & Pipe',      330.00, 'Drainage'),
+(46, '450 Precast Headwall',       'To suit 450 RCP, incl. lifting anchors',       'Ea',    'Monaro Precast & Pipe',      950.00, 'Drainage'),
+(47, 'Survey Set-out Crew',        '2 person, GPS + total station',                'Hr',    'Riverbend Survey & Spatial', 230.00, 'Survey & Testing'),
+(48, 'Field Density Test',         'Nuclear gauge, NATA accredited',               'Ea',    'Tablelands Geotech',          85.00, 'Survey & Testing');
 
 -- Demo dockets for Warrawong Road.
 -- No source_hash or source_filename — these are manual entries.
