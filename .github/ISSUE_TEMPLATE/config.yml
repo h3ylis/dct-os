@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Try the live demo
+    url: https://dct-os.com
+    about: See DCT-OS running with sample data before filing an issue.
+  - name: Questions or commercial / hosted enquiries
+    url: https://dct-os.com#contact
+    about: General questions, or commercial and hosted-edition enquiries.
