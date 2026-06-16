@@ -16,6 +16,7 @@ let purchaseOrdersGridApi = null;
 
 // Current modal context
 let modalContext = null;
+let modalSaving = false;
 
 // Cached data for dropdowns
 let cachedWorkOrders = [];
@@ -494,9 +495,13 @@ function closeModal(event) {
     const overlay = document.getElementById('modal-overlay');
     overlay.classList.remove('open');
     overlay.querySelector('.modal').classList.remove('modal-wide');
-    document.getElementById('modal-save').style.display = '';
+    const saveBtn = document.getElementById('modal-save');
+    saveBtn.style.display = '';
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
     document.getElementById('modal-delete').style.display = 'none';
     modalContext = null;
+    modalSaving = false;
 }
 
 async function deleteModal() {
@@ -516,7 +521,13 @@ async function deleteModal() {
 }
 
 async function saveModal() {
-    if (!modalContext) return;
+    // Guard against a second save while one is in flight — an impatient
+    // double/triple-click on a slow connection would otherwise fire several
+    // POSTs and create duplicate records. One entry screen = one save.
+    if (!modalContext || modalSaving) return;
+    modalSaving = true;
+    const saveBtn = document.getElementById('modal-save');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
     const wasBrowsing = browseFiles.length > 0 && browseFileIndex >= 0;
     try {
         await modalContext.save();
@@ -530,7 +541,11 @@ async function saveModal() {
             openDocketDialog();
         }
     } catch (e) {
-        // error already toasted by apiRequest
+        // Validation or API error (already toasted) — re-enable so the user
+        // can fix the problem and try again.
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+    } finally {
+        modalSaving = false;
     }
 }
 
@@ -917,18 +932,30 @@ function openDocketDialog(existing) {
     const ctx = {
         successMsg: isEdit ? 'Docket updated' : 'Docket created',
         save: async () => {
+            // Drop blank lines (a stray empty row shouldn't block or save).
+            const allLines = collectDocketLines();
+            const lines = allLines.filter(l =>
+                l.resource_id || (l.description && l.description.trim()) || l.qty > 0
+            );
             const body = {
                 date: document.getElementById('f-dk-date').value,
                 docket_number: document.getElementById('f-dk-number').value || null,
                 supplier_name: document.getElementById('f-dk-supplier').value || null,
                 purchase_order_id: parseInt(document.getElementById('f-dk-po').value) || null,
                 notes: document.getElementById('f-dk-notes').value || null,
-                lines: collectDocketLines(),
+                lines: lines,
                 source_hash: getCurrentFileHash(),
                 source_filename: getCurrentFileName(),
             };
             if (!body.date) { toast('Date is required', 'error'); throw new Error('validation'); }
-            if (body.lines.length === 0) { toast('Add at least one line', 'error'); throw new Error('validation'); }
+            if (body.lines.length === 0) { toast('Add at least one line with a quantity', 'error'); throw new Error('validation'); }
+            // Every line that has content needs a quantity — a qty of 0 means
+            // a value was missed (the classic "typed the qty into the wrong box").
+            const noQty = lines.findIndex(l => !(l.qty > 0));
+            if (noQty !== -1) {
+                toast('Line ' + (noQty + 1) + ' needs a quantity', 'error');
+                throw new Error('validation');
+            }
             if (isEdit) {
                 await apiRequest('PUT', `/api/dockets/${existing.id}`, body);
             } else {
@@ -1841,9 +1868,23 @@ function exportSummaryXLSX() {
     if (url) window.open(url, '_blank');
 }
 
+// Docket IDs currently shown in the grid after column filters. Returns null
+// when no filter is active (so export falls back to the whole project).
+function visibleDocketIds() {
+    if (!docketsGridApi) return null;
+    const visible = [];
+    docketsGridApi.forEachNodeAfterFilterAndSort(n => { if (n.data) visible.push(n.data.id); });
+    let total = 0;
+    docketsGridApi.forEachNode(() => total++);
+    return (visible.length && visible.length < total) ? visible : null;
+}
+
 function exportDocketsXLSX() {
     if (!activeProjectId) return;
-    window.open('/api/projects/' + activeProjectId + '/dockets/export-xlsx', '_blank');
+    let url = '/api/projects/' + activeProjectId + '/dockets/export-xlsx';
+    const ids = visibleDocketIds();
+    if (ids) url += '?docket_ids=' + ids.join(',');
+    window.open(url, '_blank');
 }
 
 // --- Claim / Unclaim Dockets ---
@@ -2064,7 +2105,10 @@ function getCurrentFileName() {
 
 function exportDocketsCSV() {
     if (!activeProjectId) { toast('Select a project first', 'error'); return; }
-    window.open('/api/projects/' + activeProjectId + '/dockets/export-csv', '_blank');
+    let url = '/api/projects/' + activeProjectId + '/dockets/export-csv';
+    const ids = visibleDocketIds();
+    if (ids) url += '?docket_ids=' + ids.join(',');
+    window.open(url, '_blank');
 }
 
 function exportResourcesCSV() {

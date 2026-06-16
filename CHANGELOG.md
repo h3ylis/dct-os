@@ -2,6 +2,25 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
+## [1.0.1] - 2026-06-14
+
+### Fixed
+
+- **No more duplicate dockets from an impatient double-click.** Saving any
+  dialog (docket, cost code, work order, purchase order, resource) is now
+  guarded against a second submit while the first is in flight, and the Save
+  button disables itself while saving. One entry screen saves exactly once,
+  even on a slow connection.
+- **Clearer validation.** A docket line that has a resource or description
+  but no quantity is now blocked with a "Line N needs a quantity" message
+  (instead of silently saving a zero-value line), and blank lines are
+  dropped. The dialog stays open and the Save button re-enables so you can
+  fix it and try again.
+- **Docket export honours your selection.** Export to CSV/Excel from the
+  Dockets screen now exports only the dockets currently shown by your column
+  filters, not the whole project. With no filter active it still exports
+  everything.
+
 ## [1.0.0] - 2026-06-12
 
 ### Added

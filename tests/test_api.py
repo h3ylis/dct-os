@@ -755,6 +755,36 @@ def test_export_dockets_csv(client):
     assert "Amount" in lines[0]
 
 
+def test_export_dockets_csv_filtered_by_ids(client):
+    """Export honours a docket_ids selection (the grid's filtered view)."""
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/dockets/export-csv?docket_ids={ids[0]}")
+    assert resp.status_code == 200
+    lines = resp.data.decode("utf-8").strip().split("\n")
+    assert len(lines) == 3  # header + 2 line items, not all 4
+
+    resp = client.get(
+        f"/api/projects/{pid}/dockets/export-csv?docket_ids={ids[0]},{ids[1]}"
+    )
+    lines = resp.data.decode("utf-8").strip().split("\n")
+    assert len(lines) == 4  # header + 3 line items
+
+    resp = client.get(f"/api/projects/{pid}/dockets/export-csv")
+    lines = resp.data.decode("utf-8").strip().split("\n")
+    assert len(lines) == 5  # header + all 4 line items
+
+
+def test_export_dockets_xlsx_filtered_by_ids(client):
+    import io as _io
+    from openpyxl import load_workbook
+
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/dockets/export-xlsx?docket_ids={ids[0]}")
+    assert resp.status_code == 200
+    ws = load_workbook(_io.BytesIO(resp.data)).active
+    assert ws.max_row == 3  # header + 2 lines
+
+
 def test_export_empty_project_csv(client):
     """Exporting CSV from a project with no dockets returns header only."""
     resp = client.get("/api/projects/2/dockets/export-csv")

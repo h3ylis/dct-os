@@ -587,12 +587,13 @@ def check_hashes(project_id):
     })
 
 
-@bp.route("/projects/<int:project_id>/dockets/export-csv", methods=["GET"])
-def export_dockets_csv(project_id):
-    """Export raw docket data as CSV (one row per line item)."""
-    db = get_db()
-    rows = db.execute(
-        """SELECT dh.date, dh.docket_number, dh.supplier_name,
+def _docket_export_rows(db, project_id, ids_arg):
+    """Rows for the docket exports (one per line item). An optional
+    comma-separated `docket_ids` narrows the export to a selection — the
+    grid's currently-filtered view — instead of the whole project. Blank or
+    absent means export everything (the original behaviour).
+    """
+    sql = """SELECT dh.date, dh.docket_number, dh.supplier_name,
                   po.number AS po_number,
                   wo.number AS wo_number,
                   cc.code AS cost_code,
@@ -605,10 +606,22 @@ def export_dockets_csv(project_id):
            LEFT JOIN work_orders wo ON dl.work_order_id = wo.id
            LEFT JOIN cost_codes cc ON dl.cost_code_id = cc.id
            LEFT JOIN resources r ON dl.resource_id = r.id
-           WHERE dh.project_id = ?
-           ORDER BY dh.date, dh.docket_number, dl.sort_order""",
-        (project_id,),
-    ).fetchall()
+           WHERE dh.project_id = ?"""
+    params = [project_id]
+    ids = [int(x) for x in (ids_arg or "").split(",") if x.strip().isdigit()]
+    if ids:
+        sql += " AND dh.id IN (%s)" % ",".join("?" * len(ids))
+        params.extend(ids)
+    sql += " ORDER BY dh.date, dh.docket_number, dl.sort_order"
+    return db.execute(sql, params).fetchall()
+
+
+@bp.route("/projects/<int:project_id>/dockets/export-csv", methods=["GET"])
+def export_dockets_csv(project_id):
+    """Export docket data as CSV (one row per line item). Honours an optional
+    docket_ids selection."""
+    db = get_db()
+    rows = _docket_export_rows(db, project_id, request.args.get("docket_ids"))
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -682,26 +695,10 @@ def _xlsx_finish(wb, ws, col_widths, filename):
 
 @bp.route("/projects/<int:project_id>/dockets/export-xlsx", methods=["GET"])
 def export_dockets_xlsx(project_id):
-    """Export all dockets as a formatted Excel workbook (one row per line)."""
+    """Export dockets as a formatted Excel workbook (one row per line).
+    Honours an optional docket_ids selection."""
     db = get_db()
-    rows = db.execute(
-        """SELECT dh.date, dh.docket_number, dh.supplier_name,
-                  po.number AS po_number,
-                  wo.number AS wo_number,
-                  cc.code AS cost_code,
-                  r.description AS resource_description,
-                  dl.description, dl.qty, dl.unit, dl.rate, dl.amount,
-                  dh.notes, dh.claimed_reference
-           FROM docket_headers dh
-           LEFT JOIN purchase_orders po ON dh.purchase_order_id = po.id
-           JOIN docket_lines dl ON dl.docket_id = dh.id
-           LEFT JOIN work_orders wo ON dl.work_order_id = wo.id
-           LEFT JOIN cost_codes cc ON dl.cost_code_id = cc.id
-           LEFT JOIN resources r ON dl.resource_id = r.id
-           WHERE dh.project_id = ?
-           ORDER BY dh.date, dh.docket_number, dl.sort_order""",
-        (project_id,),
-    ).fetchall()
+    rows = _docket_export_rows(db, project_id, request.args.get("docket_ids"))
 
     wb, ws = _xlsx_workbook(
         "Dockets",
