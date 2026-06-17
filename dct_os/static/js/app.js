@@ -531,10 +531,14 @@ async function saveModal() {
     const wasBrowsing = browseFiles.length > 0 && browseFileIndex >= 0;
     try {
         await modalContext.save();
+        // Capture the success message BEFORE closeModal() — it nulls modalContext,
+        // so reading modalContext.successMsg afterwards throws and (silently, via the
+        // catch below) skips the success toast and the folder-browse auto-advance.
+        const successMsg = (modalContext && modalContext.successMsg) || 'Saved';
         closeModal();
         await refreshProjectData();
         await refreshCurrentPanel();
-        toast(modalContext.successMsg || 'Saved', 'success');
+        toast(successMsg, 'success');
         // If folder browsing, auto-open next pending docket
         if (wasBrowsing) {
             browseNextPending();

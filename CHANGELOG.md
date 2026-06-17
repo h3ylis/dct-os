@@ -2,6 +2,19 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
+## [1.0.2] - 2026-06-17
+
+### Fixed
+
+- **Folder-browse auto-advance works again.** When entering dockets from a
+  folder of scans, saving one now correctly advances to the next pending scan
+  instead of stopping. A regression in 1.0.1 read the dialog's success message
+  *after* the dialog had already been torn down, which threw and — swallowed by
+  the save handler's error path — silently skipped both the auto-advance and
+  the green "Saved" toast on every dialog save (saves still persisted; you just
+  didn't see the confirmation or get moved to the next scan). The message is now
+  captured before the dialog closes.
+
 ## [1.0.1] - 2026-06-14
 
 ### Fixed
