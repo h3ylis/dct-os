@@ -2,7 +2,7 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
-## [1.2.0] - unreleased
+## [1.2.0] - 2026-06-20
 
 ### Added
 
@@ -80,6 +80,33 @@ All notable changes to DCT-OS will be documented in this file.
   the filtered view instead of the whole project every time.
 - The Reports export menu no longer appears when a filter returns no dockets —
   there's nothing to export from an empty report.
+
+## [1.0.2] - 2026-06-17
+
+### Fixed
+
+- **Folder-browse auto-advance works again.** Saving a docket while browsing a
+  folder of scans now correctly advances to the next pending scan. A regression
+  in 1.0.1 read the dialog's success message *after* the dialog had been torn
+  down, which threw and — swallowed by the save handler's error path — silently
+  skipped both the auto-advance and the green "Saved" toast on every dialog
+  save. Saves still persisted; you just didn't see the confirmation or get
+  moved to the next scan. The message is now captured before the dialog closes.
+
+## [1.0.1] - 2026-06-16
+
+### Fixed
+
+- **No more duplicate dockets from an impatient double-click.** Saving any
+  dialog is guarded against a second submit while the first is still in flight,
+  and the Save button disables itself while saving — one entry screen saves
+  exactly once, even on a slow connection.
+- **Clearer validation.** A docket line with a resource or description but no
+  quantity is now blocked with a clear message instead of silently saving a
+  zero-value line; the dialog stays open so you can fix it.
+- **Docket export honours your selection.** Exporting to CSV/Excel from the
+  Dockets screen now exports only the dockets shown by your column filters, not
+  the whole project.
 
 ## [1.0.0] - 2026-06-13
 
