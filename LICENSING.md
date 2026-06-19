@@ -34,4 +34,4 @@ New releases start their own four-year clock under the BSL.
 
 For commercial licence enquiries, pricing, or questions about whether your use case requires a licence:
 
-**astral2@gmx.de**
+**commercial@dct-os.com**

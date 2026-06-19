@@ -2,6 +2,85 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
+## [1.2.0] - unreleased
+
+### Added
+
+- **Scans stay with their dockets.** When you enter a docket from a scanned
+  file, DCT-OS now remembers where that scan lives on disk and shows it again
+  whenever you reopen the docket to edit it (served by a new `/scans/<id>`
+  route). The file stays exactly where it is — nothing is copied into the
+  database or a hidden store, so there's no bloat and no second copy to keep in
+  sync.
+- **Folder browse, reworked.** Click **Choose folder…** and DCT-OS opens a
+  native folder picker, lists the scans inside, and remembers exactly where each
+  one lives on disk — so reopening a docket shows its original scan, verified by
+  fingerprint, with no file copies and nothing typed. Each scan stays tied to the
+  one docket it was entered against (the last scan no longer follows you onto
+  every new docket); entered scans drop off the list; and an **Unassign scan**
+  button detaches a scan and returns it to the queue. On a headless/hosted box
+  with no desktop, it falls back to typing the folder path.
+- **Dashboard — the whole project at a glance.** A new **Dashboard** pill in
+  the header opens a live overview of the whole project, built entirely from
+  that project's own data:
+  - **Headline tiles** — total budget, total spent, remaining, dockets entered,
+    and suppliers (they count up as the board loads).
+  - **Spend over time** — a cumulative weekly burn-up line with a dashed
+    total-budget reference line, so the spend curve reads against the budget
+    ceiling at a glance.
+  - **Cost by work order** — a donut of spend grouped by work order, with a
+    legend of each work order and its dollars.
+  - **Cost-code burn-down** — every cost code's budget-vs-actual bar, green
+    under 80%, amber to 100%, red over budget. The bars "flood" in as they load.
+  - **PO drawdown** — per active purchase order, a drawn-vs-committed bar that
+    turns amber past 90% drawn and red if overdrawn.
+  - **Top suppliers by spend** — the five biggest suppliers as scaled bars.
+  - **Claimed vs to-claim** — a split bar showing how much of the spend has
+    been claimed versus what's still outstanding (the cash-flow view).
+- **Drill-down everywhere on the dashboard.** Click any bar, slice, or supplier
+  to jump straight to its dockets (the dockets list filters to it, with a
+  removable chip showing what's applied). Click a tile to open the screen that
+  owns it — budget/spent/remaining open Cost Codes, dockets opens Dockets,
+  suppliers opens Reports.
+- **Packaged Windows installer.** A double-click `DCT-OS-Setup.exe` (built with
+  PyInstaller + Inno Setup) installs DCT-OS with no command line and no Python
+  required: it bundles everything, runs `dct-os install` for auto-start on
+  login, and opens the app in your browser. Build recipe in `installer/`.
+
+### Changed
+
+- `dct-os install` is now packaging-aware (works from the bundled `.exe`),
+  creates its startup entry without flashing a console window, and starts
+  silently on login (`--no-browser`) — the browser only opens when you launch
+  DCT-OS yourself.
+- In the packaged build, `dct-os upgrade` points to the installer download
+  instead of attempting a pip upgrade it cannot perform.
+- **Reports build themselves.** Pick a supplier and the report appears
+  immediately — no more "Generate" button. Narrowing the date range, switching
+  to By-Docket mode, or picking individual dockets re-runs the report live as
+  you go, so you shape the result by filtering it down rather than re-generating
+  it each time.
+- **Consistent export.** The Reports CSV/Excel export now lives under a
+  **Data ▾** menu, matching the Dockets and Resources screens, instead of two
+  loose buttons in the filter bar.
+
+### Fixed
+
+- **No phone-home, for real.** Removed an undocumented network call in
+  `dct-os upgrade` that POSTed local usage counts (projects, dockets,
+  resources, work orders, cost codes, purchase orders) to a remote endpoint.
+  This contradicted the README's "no phone-home" promise and the changelog's
+  own description of upgrade stats as logged *locally*. Upgrade still writes
+  the same anonymous counts to `logs/upgrades.jsonl` on your machine, and the
+  opt-in self-hosted log reporting (`DCT_OS_LOG_URL`) is unchanged.
+- Rolled up the 1.0.1 hotfixes: the docket save button is guarded against
+  double-submit (a fast double-click can no longer create a duplicate docket),
+  docket line quantities are validated before save, and the docket CSV/Excel
+  exports honour the current selection (`docket_ids`) so you can export just
+  the filtered view instead of the whole project every time.
+- The Reports export menu no longer appears when a filter returns no dockets —
+  there's nothing to export from an empty report.
+
 ## [1.0.0] - 2026-06-13
 
 First full release. Everything below is in addition to the 0.x line.

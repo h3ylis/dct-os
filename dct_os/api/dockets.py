@@ -1,7 +1,9 @@
 import csv
+import hashlib
 import io
+import os
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, jsonify, request, send_file
 
 from dct_os.db import get_db, register_supplier
 
@@ -101,8 +103,9 @@ def create_docket(project_id):
     cur = db.execute(
         """INSERT INTO docket_headers
            (project_id, purchase_order_id, supplier_name, date,
-            docket_number, notes, source_hash, source_filename)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            docket_number, notes, source_hash, source_filename,
+            source_filepath)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             project_id,
             data.get("purchase_order_id"),
@@ -112,6 +115,7 @@ def create_docket(project_id):
             data.get("notes"),
             data.get("source_hash"),
             data.get("source_filename"),
+            data.get("source_filepath"),
         ),
     )
     header_id = cur.lastrowid
@@ -157,6 +161,7 @@ def update_docket(docket_id):
     header_fields = [
         "purchase_order_id", "supplier_name", "date",
         "docket_number", "notes", "source_hash", "source_filename",
+        "source_filepath",
     ]
     updates = {f: data[f] for f in header_fields if f in data}
     if "supplier_name" in updates:
@@ -245,6 +250,164 @@ def cost_report(project_id):
         (project_id,),
     ).fetchall()
     return jsonify([dict(r) for r in rows])
+
+
+@bp.route("/projects/<int:project_id>/dashboard", methods=["GET"])
+def project_dashboard(project_id):
+    """One combined aggregation for the whole dashboard.
+
+    Everything here is a rollup of *this project's own* docket data — no
+    cross-project or rate-history aggregation (that's the commercial edition's
+    edge). Returned as a single payload so the front-end renders every panel
+    from one fetch:
+
+        tiles        — headline budget / spent / remaining / dockets / suppliers
+        cost_codes   — per-cost-code budget vs actual (the burn-down)
+        spend_series — cumulative weekly spend (the time axis)
+        wo_costs     — spend grouped by work order (the donut)
+        po_drawdown  — per active PO, drawn vs committed
+        top_suppliers— top 5 suppliers by spend
+        claimed/to_claim — spend split by whether the docket is claimed
+    """
+    db = get_db()
+
+    # --- Cost codes (budget vs actual) — same query as /cost-report ---
+    cost_codes = [
+        dict(r)
+        for r in db.execute(
+            """SELECT cc.id, cc.code, cc.description, cc.budget_amount,
+                      COALESCE(SUM(dl.amount), 0) AS actual_spend
+               FROM cost_codes cc
+               LEFT JOIN docket_lines dl ON dl.cost_code_id = cc.id
+               LEFT JOIN docket_headers dh ON dl.docket_id = dh.id
+                    AND dh.project_id = cc.project_id
+               WHERE cc.project_id = ?
+               GROUP BY cc.id
+               ORDER BY cc.code""",
+            (project_id,),
+        ).fetchall()
+    ]
+
+    # --- Tiles — headline totals (budget from cost codes, rest from dockets) ---
+    summary = db.execute(
+        """SELECT COUNT(DISTINCT dh.id) AS total_dockets,
+                  COALESCE(SUM(dl.amount), 0) AS total_spend,
+                  COUNT(DISTINCT dh.supplier_name) AS supplier_count
+           FROM docket_headers dh
+           LEFT JOIN docket_lines dl ON dl.docket_id = dh.id
+           WHERE dh.project_id = ?""",
+        (project_id,),
+    ).fetchone()
+    total_budget = sum(c["budget_amount"] or 0 for c in cost_codes)
+    total_spent = summary["total_spend"] or 0
+    tiles = {
+        "total_budget": total_budget,
+        "total_spent": total_spent,
+        "remaining": total_budget - total_spent,
+        "total_dockets": summary["total_dockets"] or 0,
+        "supplier_count": summary["supplier_count"] or 0,
+    }
+
+    # --- Spend over time — cumulative weekly burn-up ---
+    week_rows = db.execute(
+        """SELECT strftime('%Y-%W', dh.date) AS week,
+                  MIN(dh.date) AS week_start,
+                  COALESCE(SUM(dl.amount), 0) AS amount
+           FROM docket_headers dh
+           JOIN docket_lines dl ON dl.docket_id = dh.id
+           WHERE dh.project_id = ? AND dh.date IS NOT NULL AND dh.date != ''
+           GROUP BY week
+           ORDER BY week""",
+        (project_id,),
+    ).fetchall()
+    spend_series = []
+    cumulative = 0
+    for r in week_rows:
+        cumulative += r["amount"] or 0
+        spend_series.append({
+            "week": r["week"],
+            "week_start": r["week_start"],
+            "amount": r["amount"] or 0,
+            "cumulative": cumulative,
+        })
+
+    # --- Cost by work order (the donut) ---
+    wo_costs = [
+        dict(r)
+        for r in db.execute(
+            """SELECT wo.id, wo.number, wo.description,
+                      COALESCE(SUM(dl.amount), 0) AS amount
+               FROM work_orders wo
+               JOIN docket_lines dl ON dl.work_order_id = wo.id
+               JOIN docket_headers dh ON dl.docket_id = dh.id
+                    AND dh.project_id = wo.project_id
+               WHERE wo.project_id = ?
+               GROUP BY wo.id
+               HAVING amount > 0
+               ORDER BY amount DESC""",
+            (project_id,),
+        ).fetchall()
+    ]
+
+    # --- PO drawdown — per active PO, drawn vs committed ---
+    po_drawdown = [
+        dict(r)
+        for r in db.execute(
+            """SELECT po.id, po.number, po.supplier_name,
+                      po.value AS committed,
+                      COALESCE(SUM(dl.amount), 0) AS drawn
+               FROM purchase_orders po
+               LEFT JOIN docket_headers dh ON dh.purchase_order_id = po.id
+               LEFT JOIN docket_lines dl ON dl.docket_id = dh.id
+               WHERE po.project_id = ? AND po.is_active = 1
+               GROUP BY po.id
+               ORDER BY po.number""",
+            (project_id,),
+        ).fetchall()
+    ]
+
+    # --- Top suppliers by spend ---
+    top_suppliers = [
+        dict(r)
+        for r in db.execute(
+            """SELECT dh.supplier_name AS name,
+                      COALESCE(SUM(dl.amount), 0) AS amount
+               FROM docket_headers dh
+               JOIN docket_lines dl ON dl.docket_id = dh.id
+               WHERE dh.project_id = ?
+                 AND dh.supplier_name IS NOT NULL AND dh.supplier_name != ''
+               GROUP BY dh.supplier_name
+               ORDER BY amount DESC
+               LIMIT 5""",
+            (project_id,),
+        ).fetchall()
+    ]
+
+    # --- Claimed vs to-claim — cash-flow split off the docket claim tags ---
+    claim_row = db.execute(
+        """SELECT
+               COALESCE(SUM(CASE WHEN dh.claimed_reference IS NOT NULL
+                                  AND dh.claimed_reference != ''
+                                 THEN dl.amount ELSE 0 END), 0) AS claimed,
+               COALESCE(SUM(CASE WHEN dh.claimed_reference IS NULL
+                                  OR dh.claimed_reference = ''
+                                 THEN dl.amount ELSE 0 END), 0) AS to_claim
+           FROM docket_headers dh
+           LEFT JOIN docket_lines dl ON dl.docket_id = dh.id
+           WHERE dh.project_id = ?""",
+        (project_id,),
+    ).fetchone()
+
+    return jsonify({
+        "tiles": tiles,
+        "cost_codes": cost_codes,
+        "spend_series": spend_series,
+        "wo_costs": wo_costs,
+        "po_drawdown": po_drawdown,
+        "top_suppliers": top_suppliers,
+        "claimed": claim_row["claimed"],
+        "to_claim": claim_row["to_claim"],
+    })
 
 
 @bp.route("/projects/<int:project_id>/suppliers", methods=["GET"])
@@ -587,12 +750,202 @@ def check_hashes(project_id):
     })
 
 
-@bp.route("/projects/<int:project_id>/dockets/export-csv", methods=["GET"])
-def export_dockets_csv(project_id):
-    """Export raw docket data as CSV (one row per line item)."""
+def _scan_root():
+    """When DCT_OS_SCAN_ROOT is set (the hosted demo), /api/scans only serves
+    files inside that directory — so a crafted docket can't turn the endpoint
+    into an arbitrary-file reader. Unset on a local install: the user's own
+    scans legitimately live anywhere on their machine."""
+    root = os.environ.get("DCT_OS_SCAN_ROOT", "").strip()
+    return os.path.abspath(root) if root else None
+
+
+def _within(path, root):
+    """True if `path` is inside directory `root` (both absolute)."""
+    try:
+        return os.path.commonpath([os.path.abspath(path), root]) == root
+    except ValueError:
+        return False  # e.g. different drives on Windows
+
+
+@bp.route("/scans/<int:docket_id>", methods=["GET"])
+def serve_scan(docket_id):
+    """Serve the original scan file from the stored filepath, verifying
+    the SHA-256 fingerprint still matches."""
     db = get_db()
-    rows = db.execute(
-        """SELECT dh.date, dh.docket_number, dh.supplier_name,
+    row = db.execute(
+        "SELECT source_filepath, source_hash FROM docket_headers WHERE id = ?",
+        (docket_id,),
+    ).fetchone()
+    if row is None:
+        return jsonify({"error": "Docket not found"}), 404
+    filepath = row["source_filepath"]
+    expected_hash = row["source_hash"]
+    if not filepath:
+        return jsonify({"error": "No scan associated with this docket"}), 404
+    # On the demo, refuse to serve anything outside the bundled sample-scan root.
+    root = _scan_root()
+    if root is not None and not _within(filepath, root):
+        return jsonify({"error": "Scan not available"}), 403
+    if not os.path.isfile(filepath):
+        return jsonify({"error": "File not found", "path": filepath}), 404
+
+    if expected_hash:
+        sha = hashlib.sha256()
+        with open(filepath, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                sha.update(chunk)
+        if sha.hexdigest() != expected_hash:
+            return jsonify({
+                "error": "Fingerprint mismatch",
+                "expected": expected_hash,
+                "actual": sha.hexdigest(),
+            }), 409
+
+    return send_file(filepath)
+
+
+@bp.route("/check-path", methods=["POST"])
+def check_path():
+    """Tell the folder-browse UI whether a pasted path resolves to a real file.
+
+    Used only by the manual-entry fallback (when the native picker can't open).
+    The browser sandbox never reveals the true on-disk path of a picked folder.
+    """
+    data = request.get_json() or {}
+    path = data.get("path") or ""
+    return jsonify({
+        "absolute": os.path.isabs(path),
+        "exists": bool(path) and os.path.isfile(path),
+    })
+
+
+# Folders the user has explicitly browsed this run — the only directories
+# /api/scan-file will serve previews from. In-memory; cleared on restart.
+_browsable_dirs = set()
+_SCAN_EXTS = (".pdf", ".jpg", ".jpeg", ".png")
+
+
+def _fs_browse_disabled():
+    """True where the server filesystem must not be exposed to the client —
+    e.g. the public hosted demo, which sets DCT_OS_NO_FS_BROWSE=1. Folder
+    browsing is a local-install feature; a local user leaves this unset."""
+    return os.environ.get("DCT_OS_NO_FS_BROWSE", "").strip().lower() in (
+        "1", "true", "yes")
+
+
+def _scan_folder(folder):
+    """List + SHA-256 fingerprint the scannable files in a folder (top level,
+    non-recursive). Each file comes back with its REAL absolute path so the
+    docket can store a path that actually reopens later. Remembers the folder
+    so /api/scan-file may preview from it."""
+    files = []
+    for name in sorted(os.listdir(folder)):
+        if not name.lower().endswith(_SCAN_EXTS):
+            continue
+        full = os.path.join(folder, name)
+        if not os.path.isfile(full):
+            continue
+        sha = hashlib.sha256()
+        with open(full, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                sha.update(chunk)
+        files.append({"name": name, "path": full, "hash": sha.hexdigest()})
+    _browsable_dirs.add(os.path.abspath(folder))
+    return files
+
+
+@bp.route("/pick-folder", methods=["POST"])
+def pick_folder():
+    """Open a native folder picker on the local machine and return the scannable
+    files inside, each with its true absolute path + fingerprint.
+
+    DCT-OS runs on the user's own computer, so the server can show a native
+    dialog and read the folder directly — the browser never needs (and the
+    sandbox won't give) the real filesystem path. The dialog runs in a FRESH
+    SUBPROCESS so it works reliably every time (tkinter misbehaves when reused
+    across the server's worker threads — a second pick came back empty). Returns
+    available=false so the UI falls back to manual entry on a headless box."""
+    if _fs_browse_disabled():
+        return jsonify({"available": False,
+                        "error": "Folder browsing is disabled on this server"})
+    import subprocess
+    import sys
+    import tempfile
+
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "pick-folder"]
+    else:
+        cmd = [sys.executable, "-m", "dct_os", "pick-folder"]
+    fd, tmp = tempfile.mkstemp(suffix=".pick")
+    os.close(fd)
+    cmd.append(tmp)
+    try:
+        subprocess.run(cmd, timeout=600,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with open(tmp, encoding="utf-8") as f:
+            out = f.read().strip()
+    except Exception as e:
+        return jsonify({"available": False, "error": str(e)})
+    finally:
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+
+    if out == "__NO_GUI__":
+        return jsonify({"available": False,
+                        "error": "No folder picker on this machine — type the path"})
+    if not out:
+        return jsonify({"available": True, "cancelled": True})
+    folder = os.path.abspath(out)
+    if not os.path.isdir(folder):
+        return jsonify({"available": True, "cancelled": True})
+    return jsonify({"available": True, "folder": folder,
+                    "files": _scan_folder(folder)})
+
+
+@bp.route("/list-folder", methods=["POST"])
+def list_folder():
+    """Fallback for when the native picker can't open (headless/hosted): list +
+    fingerprint the scannable files at a typed absolute folder path."""
+    if _fs_browse_disabled():
+        return jsonify({"error": "Folder browsing is disabled on this server"}), 403
+    data = request.get_json() or {}
+    folder = (data.get("path") or "").strip()
+    if not folder:
+        return jsonify({"error": "No path given"}), 400
+    if not os.path.isdir(folder):
+        return jsonify({"error": "Folder not found", "path": folder}), 404
+    folder = os.path.abspath(folder)
+    return jsonify({"folder": folder, "files": _scan_folder(folder)})
+
+
+@bp.route("/scan-file", methods=["GET"])
+def scan_file():
+    """Serve a scan by absolute path for preview during entry — restricted to
+    folders the user has browsed this run and to scan file types."""
+    if _fs_browse_disabled():
+        return jsonify({"error": "Folder browsing is disabled on this server"}), 403
+    path = request.args.get("path", "")
+    if not path:
+        return jsonify({"error": "No path"}), 400
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent not in _browsable_dirs:
+        return jsonify({"error": "Path not in a browsed folder"}), 403
+    if not path.lower().endswith(_SCAN_EXTS):
+        return jsonify({"error": "Not a scan file"}), 400
+    if not os.path.isfile(path):
+        return jsonify({"error": "File not found"}), 404
+    return send_file(path)
+
+
+def _docket_export_rows(db, project_id, ids_arg):
+    """Rows for the docket exports (one per line item). An optional
+    comma-separated `docket_ids` narrows the export to a selection — the
+    grid's currently-filtered view — instead of the whole project. Blank or
+    absent means export everything (the original behaviour).
+    """
+    sql = """SELECT dh.date, dh.docket_number, dh.supplier_name,
                   po.number AS po_number,
                   wo.number AS wo_number,
                   cc.code AS cost_code,
@@ -605,10 +958,22 @@ def export_dockets_csv(project_id):
            LEFT JOIN work_orders wo ON dl.work_order_id = wo.id
            LEFT JOIN cost_codes cc ON dl.cost_code_id = cc.id
            LEFT JOIN resources r ON dl.resource_id = r.id
-           WHERE dh.project_id = ?
-           ORDER BY dh.date, dh.docket_number, dl.sort_order""",
-        (project_id,),
-    ).fetchall()
+           WHERE dh.project_id = ?"""
+    params = [project_id]
+    ids = [int(x) for x in (ids_arg or "").split(",") if x.strip().isdigit()]
+    if ids:
+        sql += " AND dh.id IN (%s)" % ",".join("?" * len(ids))
+        params.extend(ids)
+    sql += " ORDER BY dh.date, dh.docket_number, dl.sort_order"
+    return db.execute(sql, params).fetchall()
+
+
+@bp.route("/projects/<int:project_id>/dockets/export-csv", methods=["GET"])
+def export_dockets_csv(project_id):
+    """Export docket data as CSV (one row per line item). Honours an optional
+    docket_ids selection."""
+    db = get_db()
+    rows = _docket_export_rows(db, project_id, request.args.get("docket_ids"))
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -682,26 +1047,10 @@ def _xlsx_finish(wb, ws, col_widths, filename):
 
 @bp.route("/projects/<int:project_id>/dockets/export-xlsx", methods=["GET"])
 def export_dockets_xlsx(project_id):
-    """Export all dockets as a formatted Excel workbook (one row per line)."""
+    """Export dockets as a formatted Excel workbook (one row per line).
+    Honours an optional docket_ids selection."""
     db = get_db()
-    rows = db.execute(
-        """SELECT dh.date, dh.docket_number, dh.supplier_name,
-                  po.number AS po_number,
-                  wo.number AS wo_number,
-                  cc.code AS cost_code,
-                  r.description AS resource_description,
-                  dl.description, dl.qty, dl.unit, dl.rate, dl.amount,
-                  dh.notes, dh.claimed_reference
-           FROM docket_headers dh
-           LEFT JOIN purchase_orders po ON dh.purchase_order_id = po.id
-           JOIN docket_lines dl ON dl.docket_id = dh.id
-           LEFT JOIN work_orders wo ON dl.work_order_id = wo.id
-           LEFT JOIN cost_codes cc ON dl.cost_code_id = cc.id
-           LEFT JOIN resources r ON dl.resource_id = r.id
-           WHERE dh.project_id = ?
-           ORDER BY dh.date, dh.docket_number, dl.sort_order""",
-        (project_id,),
-    ).fetchall()
+    rows = _docket_export_rows(db, project_id, request.args.get("docket_ids"))
 
     wb, ws = _xlsx_workbook(
         "Dockets",

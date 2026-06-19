@@ -207,7 +207,7 @@ DCT-OS is released under the [Business Source License 1.1](LICENSE).
 
 See [LICENSING.md](LICENSING.md) for the full breakdown of what's free and what needs a commercial licence.
 
-For commercial licensing enquiries: **astral2@gmx.de**
+For commercial licensing enquiries: **commercial@dct-os.com**
 
 ## Contributing
 
@@ -217,5 +217,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Contact
 
-- Commercial licensing: astral2@gmx.de
+- Commercial licensing: commercial@dct-os.com
 - Bug reports and feature requests: [GitHub Issues](../../issues)

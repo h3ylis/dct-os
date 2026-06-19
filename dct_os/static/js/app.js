@@ -16,6 +16,7 @@ let purchaseOrdersGridApi = null;
 
 // Current modal context
 let modalContext = null;
+let modalSaving = false;
 
 // Cached data for dropdowns
 let cachedWorkOrders = [];
@@ -35,6 +36,13 @@ let reportDockets = [];
 let browseFiles = [];
 let browseFileIndex = -1;
 let browseHashes = {};
+let editingDocket = null;
+// The scan association to persist for the docket currently open in the modal.
+// Set from the existing docket on open, from a browse file when one is picked,
+// and to nulls on unassign — so Save writes exactly the user's intent rather
+// than re-deriving it from stale browse state (which re-attached a scan after
+// the user had just unassigned it).
+let currentScan = { hash: null, filename: null, filepath: null };
 
 // --- Helpers ---
 
@@ -179,9 +187,10 @@ function showPanel(name) {
 }
 
 async function refreshCurrentPanel() {
-    if (!activeProjectId && activePanel !== 'resources') return;
+    if (!activeProjectId && activePanel !== 'resources' && activePanel !== 'dashboard') return;
 
     switch (activePanel) {
+        case 'dashboard': await loadDashboard(); break;
         case 'dockets': await loadDockets(); await loadSummary(); break;
         case 'cost-codes': await loadCostCodes(); break;
         case 'work-orders': await loadWorkOrders(); break;
@@ -345,6 +354,399 @@ async function loadCostCodes() {
     }
 }
 
+// --- Dashboard ---
+
+// Drill handlers, indexed in render order so the inline onclick just references
+// an index — no string-escaping of supplier names, WO numbers etc. in markup.
+let _dashTileDrills = [];
+let _dashDrills = [];
+let _dashDrillField = 'cost_codes';  // which docket column the active chip filters
+
+// Categorical palette for the work-order donut (deliberately NOT the budget
+// green/amber/red so a WO slice can't be mistaken for a burn-rate signal).
+const DASH_WO_PALETTE = ['#2f6695', '#1f9e75', '#d6920f', '#8a6fc7', '#d4708a', '#9aa6b3'];
+
+async function loadDashboard() {
+    const root = document.getElementById('dashboard-body');
+    if (!root) return;
+
+    if (!activeProjectId) {
+        root.innerHTML = `<div class="empty-state">
+            <h2>Select a project to get started</h2>
+            <p>The dashboard shows a live overview of the whole project — spend, budgets, work orders, POs and claims.</p>
+        </div>`;
+        return;
+    }
+
+    // One fetch feeds every panel.
+    let dash;
+    try {
+        dash = await apiFetch(`/api/projects/${activeProjectId}/dashboard`);
+    } catch (e) {
+        root.innerHTML = `<div class="empty-state"><h2>Could not load the dashboard</h2>
+            <p>Try selecting the project again.</p></div>`;
+        return;
+    }
+
+    const report = dash.cost_codes || [];
+    const t = dash.tiles || {};
+    const overBudget = (t.remaining || 0) < 0;
+
+    // A registrar: stash a drill closure, return its index for the inline onclick.
+    const drills = [];
+    const reg = fn => { drills.push(fn); return drills.length - 1; };
+
+    // Headline tiles: each one drills through to the screen that owns its data.
+    const tiles = [
+        { k: 'Total Budget', v: t.total_budget || 0, money: true, drill: () => showPanel('cost-codes') },
+        { k: 'Total Spent', v: t.total_spent || 0, money: true, drill: () => showPanel('cost-codes') },
+        { k: 'Remaining', v: Math.abs(t.remaining || 0), money: true, neg: overBudget, drill: () => showPanel('cost-codes') },
+        { k: 'Dockets entered', v: t.total_dockets || 0, money: false, drill: () => showPanel('dockets') },
+        { k: 'Suppliers', v: t.supplier_count || 0, money: false, drill: () => showPanel('reports') },
+    ];
+    _dashTileDrills = tiles.map(tile => tile.drill);
+
+    const tilesHtml = tiles.map((tile, i) => `
+        <div class="dash-tile${tile.neg ? ' over' : ''}" onclick="dashboardTileDrill(${i})"
+             data-tip="Click to open the detail" data-tip-pos="below">
+            <div class="dash-tile-k">${tile.k}</div>
+            <div class="dash-tile-v" id="dash-tile-v-${i}">${tile.money ? currency(0) : '0'}</div>
+        </div>`).join('');
+
+    // Cost-code burn-down rows (unchanged behaviour — reuses the .dash-fill CSS).
+    let rowsHtml;
+    if (report.length === 0) {
+        rowsHtml = `<div class="dash-empty">No cost codes yet — add cost codes with budgets to see the burn-down.</div>`;
+    } else {
+        rowsHtml = report.map((r, i) => {
+            const budget = r.budget_amount || 0;
+            const actual = r.actual_spend || 0;
+            const hasBudget = budget > 0;
+            const ratio = hasBudget ? actual / budget : 0;
+            const fillPct = hasBudget ? Math.min(ratio * 100, 100) : 0;
+            const cls = !hasBudget ? '' : ratio > 1 ? 'burn-over' : ratio >= 0.8 ? 'burn-warn' : 'burn-ok';
+            const pctLabel = hasBudget ? Math.round(ratio * 100) + '%' : 'no budget';
+            // Width is set inline so the bar is always correct; the "flood" is a
+            // pure-CSS scaleX animation that needs no JS to leave the right resting state.
+            const idx = reg(() => dashboardDrill('cost_codes',
+                { filterType: 'text', type: 'contains', filter: r.code }, 'Cost code ' + r.code));
+            return `<div class="dash-row" onclick="dashDrill(${idx})"
+                         data-tip="${currency(actual)} of ${currency(budget)} — click to see its dockets" data-tip-pos="below">
+                <span class="dash-code">${esc(r.code)}</span>
+                <span class="dash-name">${esc(r.description || '')}</span>
+                <span class="dash-bar">
+                    <span class="dash-fill ${cls}" style="width:${fillPct}%;animation-delay:${i * 45}ms"></span>
+                    <span class="dash-pct${hasBudget ? '' : ' muted'}">${pctLabel}</span>
+                </span>
+            </div>`;
+        }).join('');
+    }
+
+    // Header carries no project name — the sidebar highlight is the project
+    // signal (the app dropped the name from the header in v1.0).
+    root.innerHTML = `
+        <div class="dash-head">
+            <div class="dash-sub">Live project overview</div>
+        </div>
+        <div class="dash-tiles">${tilesHtml}</div>
+
+        <div class="dash-card dash-card-wide">
+            <div class="dash-card-head">
+                <span class="dash-card-title">Spend over time</span>
+                <span class="dash-card-hint">Cumulative weekly spend vs total budget</span>
+            </div>
+            ${dashSpendChart(dash.spend_series || [], t.total_budget || 0)}
+        </div>
+
+        <div class="dash-cards">
+            <div class="dash-card">
+                <div class="dash-card-head">
+                    <span class="dash-card-title">Cost by work order</span>
+                    <span class="dash-card-hint">Click a work order to see its dockets</span>
+                </div>
+                ${dashWoDonut(dash.wo_costs || [], DASH_WO_PALETTE, reg)}
+            </div>
+            <div class="dash-card">
+                <div class="dash-card-head">
+                    <span class="dash-card-title">Claimed vs to-claim</span>
+                    <span class="dash-card-hint">Cash already claimed against what's left</span>
+                </div>
+                ${dashClaimSplit(dash.claimed || 0, dash.to_claim || 0, reg)}
+            </div>
+            <div class="dash-card">
+                <div class="dash-card-head">
+                    <span class="dash-card-title">PO drawdown</span>
+                    <span class="dash-card-hint">Drawn against committed, per active PO</span>
+                </div>
+                ${dashPoDrawdown(dash.po_drawdown || [], reg)}
+            </div>
+            <div class="dash-card">
+                <div class="dash-card-head">
+                    <span class="dash-card-title">Top suppliers by spend</span>
+                    <span class="dash-card-hint">Click a supplier to see its dockets</span>
+                </div>
+                ${dashTopSuppliers(dash.top_suppliers || [], reg)}
+            </div>
+        </div>
+
+        <div class="dash-board-head">
+            <span class="dash-board-title">Cost code burn-down</span>
+            <span class="dash-board-hint">Click any bar to jump to its dockets</span>
+        </div>
+        <div class="dash-grid">${rowsHtml}</div>
+    `;
+
+    _dashDrills = drills;
+
+    // The flood: bars rise from zero via CSS (see .dash-fill); tiles count up.
+    tiles.forEach((tile, i) => {
+        animateCount(document.getElementById('dash-tile-v-' + i), tile.v, { money: tile.money, neg: tile.neg });
+    });
+}
+
+// Count a tile up to its target. The count-up is a progressive enhancement —
+// a setTimeout safety net forces the correct final value even if rAF is paused
+// (e.g. the tab is in the background), so a tile never rests on a wrong number.
+function animateCount(el, target, opts) {
+    if (!el) return;
+    opts = opts || {};
+    const dur = 700;
+    const fmt = (val) => {
+        if (opts.money) {
+            const s = currency(val);
+            return opts.neg ? '(' + s + ')' : s;
+        }
+        return Math.round(val).toLocaleString();
+    };
+    if (!target) { el.textContent = fmt(0); return; }
+    let raf = null;
+    const safety = setTimeout(() => {
+        if (raf) cancelAnimationFrame(raf);
+        el.textContent = fmt(target);
+    }, dur + 250);
+    el.textContent = fmt(0);
+    const start = performance.now();
+    function frame(now) {
+        const t = Math.min((now - start) / dur, 1);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = fmt(target * eased);
+        if (t < 1) { raf = requestAnimationFrame(frame); }
+        else { clearTimeout(safety); el.textContent = fmt(target); }
+    }
+    raf = requestAnimationFrame(frame);
+}
+
+function dashboardTileDrill(i) {
+    const fn = _dashTileDrills[i];
+    if (typeof fn === 'function') fn();
+}
+
+// Slice / bar / supplier drill — closures registered by index in render order.
+function dashDrill(i) {
+    const fn = _dashDrills[i];
+    if (typeof fn === 'function') fn();
+}
+
+// Jump to Dockets and filter a column. `field` is the docket grid column,
+// `model` an AG-Grid filter model, `label` the removable chip's text.
+async function dashboardDrill(field, model, label) {
+    showPanel('dockets');
+    await loadDockets();
+    applyDocketFilter(field, model, label);
+}
+
+function applyDocketFilter(field, model, label) {
+    if (!docketsGridApi) return;
+    _dashDrillField = field;
+    const apply = () => {
+        docketsGridApi.onFilterChanged();
+        const chip = document.getElementById('docket-filter-chip');
+        if (chip) {
+            chip.querySelector('.chip-text').textContent = label;
+            chip.style.display = '';
+        }
+    };
+    const res = docketsGridApi.setColumnFilterModel(field, model);
+    if (res && typeof res.then === 'function') res.then(apply);
+    else apply();
+}
+
+function clearDocketDrill() {
+    const chip = document.getElementById('docket-filter-chip');
+    if (chip) chip.style.display = 'none';
+    if (!docketsGridApi) return;
+    const res = docketsGridApi.setColumnFilterModel(_dashDrillField, null);
+    const after = () => docketsGridApi.onFilterChanged();
+    if (res && typeof res.then === 'function') res.then(after);
+    else after();
+}
+
+// --- Dashboard panel renderers (inline SVG / CSS only — no chart library) ---
+
+// Cumulative weekly spend as an area + line, with a dashed total-budget line.
+function dashSpendChart(series, totalBudget) {
+    if (!series.length) {
+        return `<div class="dash-card-empty">No dated dockets yet — spend over time appears once dockets are entered.</div>`;
+    }
+    // viewBox kept close to the real on-screen size so the SVG (and its text)
+    // isn't blown up when stretched to the full-width card.
+    const W = 1400, H = 200;
+    const padL = 28, padR = 28, padT = 18, padB = 10;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+    const last = series[series.length - 1].cumulative || 0;
+    const maxY = Math.max(totalBudget, last, 1) * 1.08;
+    const n = series.length;
+    const baseY = padT + plotH;
+    const xAt = i => padL + (n === 1 ? plotW : plotW * i / (n - 1));
+    const yAt = v => padT + plotH * (1 - v / maxY);
+
+    const linePts = series.map((p, i) => `${xAt(i).toFixed(1)},${yAt(p.cumulative).toFixed(1)}`).join(' ');
+    const areaPts = `${padL.toFixed(1)},${baseY.toFixed(1)} ${linePts} ${xAt(n - 1).toFixed(1)},${baseY.toFixed(1)}`;
+
+    let budgetLine = '';
+    if (totalBudget > 0) {
+        const by = yAt(totalBudget).toFixed(1);
+        budgetLine = `
+            <line class="dash-budget-line" x1="${padL}" y1="${by}" x2="${W - padR}" y2="${by}"></line>
+            <text class="dash-budget-tag" x="${W - padR}" y="${(parseFloat(by) - 5).toFixed(1)}" text-anchor="end">Budget ${currency(totalBudget)}</text>`;
+    }
+
+    const endX = xAt(n - 1).toFixed(1);
+    const endY = yAt(last).toFixed(1);
+
+    return `
+        <svg class="dash-spend-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cumulative spend over time">
+            <polygon class="dash-spend-area" points="${areaPts}"></polygon>
+            <polyline class="dash-spend-line" points="${linePts}"></polyline>
+            ${budgetLine}
+            <circle class="dash-spend-dot" cx="${endX}" cy="${endY}" r="4"></circle>
+        </svg>
+        <div class="dash-spend-axis">
+            <span>${esc(series[0].week_start || '')}</span>
+            <span class="dash-spend-end">${currency(last)} to date</span>
+            <span>${esc(series[n - 1].week_start || '')}</span>
+        </div>`;
+}
+
+// Spend grouped by work order as a conic-gradient donut + clickable legend.
+function dashWoDonut(wo, palette, reg) {
+    const total = wo.reduce((s, w) => s + (w.amount || 0), 0);
+    if (!total) {
+        return `<div class="dash-card-empty">No work-order spend yet.</div>`;
+    }
+    let acc = 0;
+    const stops = wo.map((w, i) => {
+        const start = (acc / total) * 100;
+        acc += w.amount || 0;
+        const end = (acc / total) * 100;
+        return `${palette[i % palette.length]} ${start.toFixed(2)}% ${end.toFixed(2)}%`;
+    }).join(', ');
+
+    const legend = wo.map((w, i) => {
+        const c = palette[i % palette.length];
+        const label = w.number + (w.description ? ' · ' + w.description : '');
+        const idx = reg(() => dashboardDrill('wo_numbers',
+            { filterType: 'text', type: 'contains', filter: w.number }, 'Work order ' + w.number));
+        return `<div class="dash-legend-row" onclick="dashDrill(${idx})"
+                     data-tip="Click to see ${esc(w.number)}'s dockets" data-tip-pos="below">
+            <span class="dash-swatch" style="background:${c}"></span>
+            <span class="dash-legend-name">${esc(label)}</span>
+            <span class="dash-legend-val">${currency(w.amount)}</span>
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="dash-donut-wrap">
+            <div class="dash-donut" style="background:conic-gradient(${stops})">
+                <div class="dash-donut-hole">
+                    <div class="dash-donut-total">${currency(total)}</div>
+                    <div class="dash-donut-cap">Spent</div>
+                </div>
+            </div>
+            <div class="dash-legend">${legend}</div>
+        </div>`;
+}
+
+// Per active PO: a drawn-vs-committed bar (amber > 90% drawn, red overdrawn).
+function dashPoDrawdown(pos, reg) {
+    if (!pos.length) {
+        return `<div class="dash-card-empty">No active purchase orders.</div>`;
+    }
+    return `<div class="dash-bars">` + pos.map(po => {
+        const committed = po.committed || 0;
+        const drawn = po.drawn || 0;
+        const ratio = committed > 0 ? drawn / committed : 0;
+        const fillPct = Math.min(ratio * 100, 100);
+        const cls = ratio > 1 ? 'po-over' : ratio > 0.9 ? 'po-warn' : 'po-ok';
+        const idx = reg(() => dashboardDrill('po_number',
+            { filterType: 'text', type: 'contains', filter: po.number }, 'PO ' + po.number));
+        const sup = po.supplier_name ? ' · ' + esc(po.supplier_name) : '';
+        return `<div class="dash-barrow" onclick="dashDrill(${idx})"
+                     data-tip="Click to see ${esc(po.number)}'s dockets" data-tip-pos="below">
+            <div class="dash-barrow-top">
+                <span class="dash-barrow-label">${esc(po.number)}${sup}</span>
+                <span class="dash-barrow-fig">${currency(drawn)} / ${currency(committed)}</span>
+            </div>
+            <span class="dash-track"><span class="dash-track-fill ${cls}" style="width:${fillPct}%"></span></span>
+        </div>`;
+    }).join('') + `</div>`;
+}
+
+// Top suppliers by spend — horizontal bars scaled to the biggest spender.
+function dashTopSuppliers(suppliers, reg) {
+    if (!suppliers.length) {
+        return `<div class="dash-card-empty">No supplier spend yet.</div>`;
+    }
+    const max = suppliers[0].amount || 1;
+    return `<div class="dash-bars">` + suppliers.map(s => {
+        const pct = Math.max((s.amount || 0) / max * 100, 2);
+        const idx = reg(() => dashboardDrill('supplier_name',
+            { filterType: 'text', type: 'contains', filter: s.name }, 'Supplier ' + s.name));
+        return `<div class="dash-barrow" onclick="dashDrill(${idx})"
+                     data-tip="Click to see ${esc(s.name)}'s dockets" data-tip-pos="below">
+            <div class="dash-barrow-top">
+                <span class="dash-barrow-label">${esc(s.name)}</span>
+                <span class="dash-barrow-fig">${currency(s.amount)}</span>
+            </div>
+            <span class="dash-track"><span class="dash-track-fill supplier" style="width:${pct}%"></span></span>
+        </div>`;
+    }).join('') + `</div>`;
+}
+
+// Claimed vs to-claim as a single split bar + two clickable figures.
+function dashClaimSplit(claimed, toClaim, reg) {
+    const total = (claimed || 0) + (toClaim || 0);
+    if (!total) {
+        return `<div class="dash-card-empty">No spend to claim yet.</div>`;
+    }
+    const claimedPct = claimed / total * 100;
+    const toClaimPct = toClaim / total * 100;
+    const idxC = reg(() => dashboardDrill('claimed_reference',
+        { filterType: 'text', type: 'notBlank' }, 'Claimed dockets'));
+    const idxT = reg(() => dashboardDrill('claimed_reference',
+        { filterType: 'text', type: 'blank' }, 'Unclaimed dockets'));
+    return `
+        <div class="dash-split">
+            <span class="dash-split-seg claimed" style="width:${claimedPct}%" onclick="dashDrill(${idxC})"
+                  data-tip="Claimed — click to see these dockets" data-tip-pos="above"></span>
+            <span class="dash-split-seg toclaim" style="width:${toClaimPct}%" onclick="dashDrill(${idxT})"
+                  data-tip="Still to claim — click to see these dockets" data-tip-pos="above"></span>
+        </div>
+        <div class="dash-split-keys">
+            <div class="dash-split-key" onclick="dashDrill(${idxC})">
+                <span class="dash-swatch claimed"></span>
+                <span class="dash-split-k">Claimed</span>
+                <span class="dash-split-v">${currency(claimed)}</span>
+            </div>
+            <div class="dash-split-key" onclick="dashDrill(${idxT})">
+                <span class="dash-swatch toclaim"></span>
+                <span class="dash-split-k">To claim</span>
+                <span class="dash-split-v">${currency(toClaim)}</span>
+            </div>
+        </div>`;
+}
+
 // --- Work Orders Grid ---
 
 function initWorkOrdersGrid() {
@@ -494,9 +896,13 @@ function closeModal(event) {
     const overlay = document.getElementById('modal-overlay');
     overlay.classList.remove('open');
     overlay.querySelector('.modal').classList.remove('modal-wide');
-    document.getElementById('modal-save').style.display = '';
+    const saveBtn = document.getElementById('modal-save');
+    saveBtn.style.display = '';
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
     document.getElementById('modal-delete').style.display = 'none';
     modalContext = null;
+    modalSaving = false;
 }
 
 async function deleteModal() {
@@ -516,21 +922,32 @@ async function deleteModal() {
 }
 
 async function saveModal() {
-    if (!modalContext) return;
-    const wasBrowsing = browseFiles.length > 0 && browseFileIndex >= 0;
+    // Guard against a second save while one is in flight — an impatient
+    // double/triple-click on a slow connection would otherwise fire several
+    // POSTs and create duplicate records. One entry screen = one save.
+    if (!modalContext || modalSaving) return;
+    modalSaving = true;
+    const saveBtn = document.getElementById('modal-save');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
     try {
         await modalContext.save();
+        // Capture the success message BEFORE closeModal() — it nulls modalContext,
+        // so reading modalContext.successMsg afterwards throws and (silently, via the
+        // catch below) skips the success toast.
+        const successMsg = (modalContext && modalContext.successMsg) || 'Saved';
         closeModal();
         await refreshProjectData();
         await refreshCurrentPanel();
-        toast(modalContext.successMsg || 'Saved', 'success');
-        // If folder browsing, auto-open next pending docket
-        if (wasBrowsing) {
-            browseNextPending();
-            openDocketDialog();
-        }
+        toast(successMsg, 'success');
+        // The modal closes on save — no auto-advance. The entered scan drops off
+        // the browse list (it's now assigned), and the user reopens a fresh
+        // docket for the next one.
     } catch (e) {
-        // error already toasted by apiRequest
+        // Validation or API error (already toasted) — re-enable so the user
+        // can fix the problem and try again.
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+    } finally {
+        modalSaving = false;
     }
 }
 
@@ -617,7 +1034,10 @@ function openCostCodeDialog(existing) {
         </div>
         <div class="form-group">
             <label data-tip="Budgeted amount — the cost report compares actuals against this" data-tip-pos="below">Budget Amount</label>
-            <input type="number" id="f-cc-budget" step="0.01" value="${e.budget_amount || 0}">
+            <div class="input-prefix">
+                <span class="input-prefix-symbol">$</span>
+                <input type="number" id="f-cc-budget" step="0.01" placeholder="0.00" value="${e.budget_amount || ''}">
+            </div>
         </div>
     `;
     const ctx = {
@@ -814,6 +1234,14 @@ function openResourceDialog(existing) {
 function openDocketDialog(existing) {
     if (!activeProjectId) { toast('Select a project first', 'error'); return; }
     const e = existing || {};
+    editingDocket = existing || null;
+    // Seed the scan association from the docket being opened (nulls for a new
+    // one). Picking a browse file or unassigning updates this; Save persists it.
+    currentScan = {
+        hash: e.source_hash || null,
+        filename: e.source_filename || null,
+        filepath: e.source_filepath || null,
+    };
     const today = new Date().toISOString().slice(0, 10);
     docketLineCounter = 0;
 
@@ -822,26 +1250,68 @@ function openDocketDialog(existing) {
         .map(p => `<option value="${p.id}"${e.purchase_order_id === p.id ? ' selected' : ''}>${esc(p.number)} — ${esc(p.supplier_name || '')}</option>`)
         .join('');
 
+    const savedFolderPath = localStorage.getItem('dctos_folder_path') || '';
+
     const html = `
         <div class="docket-entry" id="docket-entry">
             <div class="pdf-pane" id="docket-pdf-pane">
-                <div class="pdf-toolbar">
-                    <button class="pdf-tb-btn" onclick="document.getElementById('folder-input').click()" title="Browse folder">&#128193;</button>
-                    <input type="file" id="folder-input" webkitdirectory multiple accept=".pdf,.jpg,.jpeg,.png" onchange="onFolderSelected(this)" style="display:none">
-                    <select id="pdf-file-select" class="pdf-file-select" onchange="selectBrowseFile(parseInt(this.value))" title="Select file">
-                        <option value="-1">No files loaded</option>
-                    </select>
-                    <div class="pdf-tb-nav" id="pdf-tb-nav" style="display:none">
-                        <button class="pdf-tb-btn" onclick="browsePrev()" title="Previous">&#9664;</button>
-                        <span class="pdf-tb-counter" id="pdf-nav-info">0/0</span>
-                        <button class="pdf-tb-btn" onclick="browseNext()" title="Next">&#9654;</button>
+                <div id="browse-list-view" class="browse-view">
+                    <div class="pdf-toolbar">
+                        <span style="font-size:13px;font-weight:500;flex:1">Source documents</span>
+                        <button class="pdf-tb-btn pdf-tb-close" onclick="togglePdfPane()" title="Close">&times;</button>
                     </div>
-                    <button class="pdf-tb-btn pdf-tb-close" onclick="togglePdfPane()" title="Close">&times;</button>
+                    <div class="browse-folder-bar">
+                        <button class="pdf-tb-btn browse-pick-btn" onclick="pickFolder()" title="Choose the folder of scanned dockets">&#128193; Choose folder…</button>
+                        <span id="browse-folder-display" class="browse-folder-display" title="${esc(savedFolderPath)}">${esc(savedFolderPath)}</span>
+                    </div>
+                    <div id="browse-manual-row" class="browse-folder-bar" style="display:none">
+                        <input type="text" id="browse-folder-path" class="browse-folder-input" placeholder="Type the full folder path (e.g. C:\\Projects\\Scans)">
+                        <button class="pdf-tb-btn" onclick="manualLoadFolder()" title="Load scans from this path">Load</button>
+                    </div>
+                    <div id="browse-path-status" class="browse-path-status" style="display:none"></div>
+                    <div id="browse-file-list" class="browse-file-list">
+                        <div class="pdf-placeholder">
+                            <div style="font-size:36px;margin-bottom:8px;opacity:0.4">&#128193;</div>
+                            <div>Choose a folder to see scans</div>
+                        </div>
+                    </div>
+                    <div id="browse-progress" class="browse-progress" style="display:none">
+                        <span id="browse-progress-text">0 / 0</span>
+                        <div class="browse-progress-track"><div class="browse-progress-fill" id="browse-progress-fill"></div></div>
+                    </div>
                 </div>
-                <div class="pdf-viewer" id="pdf-viewer">
-                    <div class="pdf-placeholder">
-                        <div style="font-size:36px;margin-bottom:8px;opacity:0.4">&#128196;</div>
-                        <div>Click &#128193; to browse a folder</div>
+
+                <div id="browse-viewer-view" class="browse-view" style="display:none">
+                    <div class="pdf-toolbar">
+                        <button class="pdf-tb-btn" onclick="showBrowseList()" title="Back to file list">&#9664; List</button>
+                        <span id="browse-viewer-filename" style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px"></span>
+                        <span id="browse-viewer-counter" style="font-size:11px;color:var(--text-muted);white-space:nowrap"></span>
+                        <button class="pdf-tb-btn pdf-tb-close" onclick="togglePdfPane()" title="Close">&times;</button>
+                    </div>
+                    <div class="pdf-viewer" id="pdf-viewer"></div>
+                    <div class="browse-viewer-nav">
+                        <button class="pdf-tb-btn" onclick="browsePrevPending()" title="Previous pending">&#9664; Prev</button>
+                        <button class="pdf-tb-btn" onclick="browseNextPending()" title="Next pending">Next &#9654;</button>
+                    </div>
+                    <div class="docket-fingerprint" id="browse-viewer-fp" style="display:none">
+                        <span class="fp-label">Fingerprint:</span>
+                        <span class="fp-hash" id="browse-viewer-hash"></span>
+                    </div>
+                </div>
+
+                <div id="edit-scan-view" class="browse-view" style="display:none">
+                    <div class="pdf-toolbar">
+                        <span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="edit-scan-filename"></span>
+                        <span id="edit-scan-status" style="font-size:11px;white-space:nowrap"></span>
+                        <button class="pdf-tb-btn pdf-tb-close" onclick="togglePdfPane()" title="Close">&times;</button>
+                    </div>
+                    <div class="pdf-viewer" id="edit-scan-viewer"></div>
+                    <div class="docket-fingerprint" id="edit-scan-fp" style="display:none">
+                        <span class="fp-label">Fingerprint:</span>
+                        <span class="fp-hash" id="edit-scan-hash"></span>
+                    </div>
+                    <div class="browse-unassign-row">
+                        <button class="btn-sm btn-danger-outline" onclick="unassignScan()" style="flex:1">&#128279; Unassign scan</button>
                     </div>
                 </div>
             </div>
@@ -917,26 +1387,47 @@ function openDocketDialog(existing) {
     const ctx = {
         successMsg: isEdit ? 'Docket updated' : 'Docket created',
         save: async () => {
+            // Drop blank lines (a stray empty row shouldn't block or save).
+            const allLines = collectDocketLines();
+            const lines = allLines.filter(l =>
+                l.resource_id || (l.description && l.description.trim()) || l.qty > 0
+            );
             const body = {
                 date: document.getElementById('f-dk-date').value,
                 docket_number: document.getElementById('f-dk-number').value || null,
                 supplier_name: document.getElementById('f-dk-supplier').value || null,
                 purchase_order_id: parseInt(document.getElementById('f-dk-po').value) || null,
                 notes: document.getElementById('f-dk-notes').value || null,
-                lines: collectDocketLines(),
-                source_hash: getCurrentFileHash(),
-                source_filename: getCurrentFileName(),
+                lines: lines,
+                source_hash: currentScan.hash,
+                source_filename: currentScan.filename,
+                source_filepath: currentScan.filepath,
             };
             if (!body.date) { toast('Date is required', 'error'); throw new Error('validation'); }
-            if (body.lines.length === 0) { toast('Add at least one line', 'error'); throw new Error('validation'); }
+            if (body.lines.length === 0) { toast('Add at least one line with a quantity', 'error'); throw new Error('validation'); }
+            // Every line that has content needs a quantity — a qty of 0 means
+            // a value was missed (the classic "typed the qty into the wrong box").
+            const noQty = lines.findIndex(l => !(l.qty > 0));
+            if (noQty !== -1) {
+                toast('Line ' + (noQty + 1) + ' needs a quantity', 'error');
+                throw new Error('validation');
+            }
+            // Backstop for the browser-can't-see-the-real-path trap: if we're
+            // about to store a scan path that isn't absolute (a drive letter,
+            // UNC, or POSIX root), it won't reopen later. Warn but don't block —
+            // the docket data is fine; only the scan link would be broken.
+            if (body.source_filepath && !/^([a-zA-Z]:[\\/]|\\\\|\/)/.test(body.source_filepath)) {
+                toast('Scan saved, but the folder path looks incomplete — paste the full path so it reopens', 'error');
+            }
             if (isEdit) {
                 await apiRequest('PUT', `/api/dockets/${existing.id}`, body);
             } else {
                 await apiRequest('POST', `/api/projects/${activeProjectId}/dockets`, body);
             }
             await loadSummary();
-            // Mark file as entered and advance to next pending
-            if (browseFiles.length > 0 && browseFileIndex >= 0) {
+            // If we actually saved a scan against this docket, mark it so it
+            // drops off the browse list. Don't mark after an unassign (no scan).
+            if (currentScan.hash && browseFiles.length > 0 && browseFileIndex >= 0) {
                 markCurrentFileEntered();
             }
         },
@@ -959,21 +1450,15 @@ function openDocketDialog(existing) {
         addDocketLine();
     }
 
-    // Restore folder browse state if active
+    // Restore side panel state. The panel itself stays CLOSED by default
+    // regardless of whether this docket has a scan — the user deploys it with
+    // the toggle. We only pre-render the (pending-only) file list so it's ready
+    // the moment they open it.
     if (browseFiles.length > 0) {
         renderBrowseFileList();
-        if (browseFileIndex >= 0) selectBrowseFile(browseFileIndex);
-        // Auto-open PDF pane
-        const entry = document.getElementById('docket-entry');
-        if (entry && !entry.classList.contains('pdf-open')) {
-            entry.classList.add('pdf-open');
-            const icon = document.getElementById('pdf-toggle-icon');
-            if (icon) icon.style.opacity = '0.4';
-        }
     }
 
-    // Focus the first real field. openModal's auto-focus lands on the hidden
-    // folder-input here, so put the cursor on Date explicitly.
+    // Focus the first real field explicitly so the cursor lands on Date.
     document.getElementById('f-dk-date')?.focus();
 }
 
@@ -1261,13 +1746,31 @@ function collectDocketLines() {
     return lines;
 }
 
+function openPdfPane() {
+    const entry = document.getElementById('docket-entry');
+    if (!entry || entry.classList.contains('pdf-open')) return;
+    entry.classList.add('pdf-open');
+    const icon = document.getElementById('pdf-toggle-icon');
+    if (icon) icon.style.opacity = '0.4';
+}
+
 function togglePdfPane() {
     const entry = document.getElementById('docket-entry');
     if (!entry) return;
-    entry.classList.toggle('pdf-open');
-    const icon = document.getElementById('pdf-toggle-icon');
-    if (icon) {
-        icon.style.opacity = entry.classList.contains('pdf-open') ? '0.4' : '1';
+    if (entry.classList.contains('pdf-open')) {
+        entry.classList.remove('pdf-open');
+        const icon = document.getElementById('pdf-toggle-icon');
+        if (icon) icon.style.opacity = '1';
+    } else {
+        openPdfPane();
+        // Editing a docket that already has a scan → show that scan (pulled from
+        // the server by filepath, fingerprint re-checked). Everything else —
+        // a new docket, or editing one with no scan yet — opens to the list.
+        if (editingDocket && editingDocket.source_filepath) {
+            showEditScan(editingDocket.id, editingDocket.source_filename, editingDocket.source_hash);
+        } else {
+            showBrowseList();
+        }
     }
 }
 
@@ -1379,6 +1882,37 @@ function loadReportFilters() {
             (s === current ? ' selected' : '') + '>' + esc(s) + '</option>').join('');
 }
 
+// Show/hide the Reports "Data" export dropdown (only meaningful once a report
+// is on screen). Mirrors the Dockets/Resources pages for consistency.
+function showReportDataMenu(show) {
+    const wrap = document.getElementById('rpt-data-menu-wrap');
+    if (wrap) wrap.style.display = show ? '' : 'none';
+}
+
+// Debounced auto-run: the report regenerates as soon as a supplier is picked
+// and live-refreshes as the filters change — no Generate button to press.
+// _reportRunSeq tags each run so a slower, superseded fetch can't render over a
+// newer one (or over a cleared report).
+let _reportRunTimer = null;
+let _reportRunSeq = 0;
+function scheduleReportRun() {
+    const supplier = document.getElementById('rpt-supplier').value;
+    if (!supplier) {
+        // Supplier cleared — cancel any pending/in-flight run, wipe the report
+        // and hide its export menu.
+        clearTimeout(_reportRunTimer);
+        _reportRunSeq++;
+        const output = document.getElementById('report-output');
+        if (output) output.innerHTML = '';
+        showReportDataMenu(false);
+        const claimBar = document.getElementById('rpt-claim-bar');
+        if (claimBar) claimBar.style.display = 'none';
+        return;
+    }
+    clearTimeout(_reportRunTimer);
+    _reportRunTimer = setTimeout(() => runDocketSummary({ silent: true }), 200);
+}
+
 function setReportMode(mode, btn) {
     reportMode = mode;
     document.querySelectorAll('#rpt-mode-pills .pill').forEach(p => p.classList.remove('active'));
@@ -1393,6 +1927,8 @@ function setReportMode(mode, btn) {
         dateFields.forEach(f => f.style.display = 'none');
         if (picker) picker.style.display = '';
     }
+    // Re-run with the new mode (date filter vs. docket selection).
+    scheduleReportRun();
 }
 
 async function onReportSupplierChange() {
@@ -1401,6 +1937,7 @@ async function onReportSupplierChange() {
     if (!supplier || !activeProjectId || !listEl) {
         reportDockets = [];
         if (listEl) listEl.innerHTML = '';
+        scheduleReportRun();   // clears the output when the supplier is unset
         return;
     }
 
@@ -1415,6 +1952,7 @@ async function onReportSupplierChange() {
     } catch (e) {
         reportDockets = [];
     }
+    scheduleReportRun();   // show the full report immediately on supplier select
 }
 
 function renderDocketPicker() {
@@ -1442,6 +1980,7 @@ function toggleDocketChip(label) {
     const cb = label.querySelector('input[type="checkbox"]');
     cb.checked = !cb.checked;
     label.classList.toggle('selected', cb.checked);
+    scheduleReportRun();   // narrow the report to the picked dockets, live
 }
 
 function toggleAllDockets(checked) {
@@ -1450,6 +1989,7 @@ function toggleAllDockets(checked) {
         cb.checked = checked;
         chip.classList.toggle('selected', checked);
     });
+    scheduleReportRun();
 }
 
 function getSelectedDocketIds() {
@@ -1477,28 +2017,29 @@ function _buildSummaryUrl(base) {
     return url;
 }
 
-async function runDocketSummary() {
-    if (!activeProjectId) { toast('Select a project first', 'error'); return; }
+async function runDocketSummary(opts) {
+    // Called both from the live auto-run (silent) and any direct trigger.
+    const silent = opts && opts.silent;
+    if (!activeProjectId) { if (!silent) toast('Select a project first', 'error'); return; }
     const supplier = document.getElementById('rpt-supplier').value;
-    if (!supplier) { toast('Select a supplier', 'error'); return; }
+    if (!supplier) { if (!silent) toast('Select a supplier', 'error'); return; }
 
-    if (reportMode === 'dockets') {
-        const ids = getSelectedDocketIds();
-        if (ids.length === 0) { toast('Select at least one docket', 'error'); return; }
-    }
+    // In docket mode, an empty selection means "all of this supplier's dockets"
+    // (the URL builder simply omits docket_ids) — so there's always a full
+    // report to start from, which the user then narrows by picking dockets.
 
     // New report generation — reset the rate-review session state
     editedRateKeys = new Set();
     ratesUpdatedCount = 0;
 
+    const seq = ++_reportRunSeq;
     const url = _buildSummaryUrl('/api/projects/' + activeProjectId + '/docket-summary');
     try {
         const data = await apiFetch(url);
-        renderDocketSummary(data);
-        document.getElementById('rpt-csv-btn').style.display = '';
-        document.getElementById('rpt-xlsx-btn').style.display = '';
+        if (seq !== _reportRunSeq) return;   // a newer run (or a clear) superseded this one
+        renderDocketSummary(data);           // toggles the export menu itself (hidden when empty)
     } catch (e) {
-        toast('Failed to generate report', 'error');
+        if (!silent) toast('Failed to generate report', 'error');
     }
 }
 
@@ -1533,8 +2074,7 @@ function renderDocketSummary(data) {
     const output = document.getElementById('report-output');
     if (!data.groups || data.groups.length === 0) {
         output.innerHTML = '<div class="report-empty">No docket data found for this selection.</div>';
-        document.getElementById('rpt-csv-btn').style.display = 'none';
-        document.getElementById('rpt-xlsx-btn').style.display = 'none';
+        showReportDataMenu(false);
         // Hide claim bar
         const claimBar = document.getElementById('rpt-claim-bar');
         if (claimBar) claimBar.style.display = 'none';
@@ -1636,6 +2176,7 @@ function renderDocketSummary(data) {
     }
 
     output.innerHTML = html;
+    showReportDataMenu(true);   // a real report is on screen — expose its export menu
 
     // Show claim bar when in docket mode
     const claimBar = document.getElementById('rpt-claim-bar');
@@ -1841,9 +2382,23 @@ function exportSummaryXLSX() {
     if (url) window.open(url, '_blank');
 }
 
+// Docket IDs currently shown in the grid after column filters. Returns null
+// when no filter is active (so export falls back to the whole project).
+function visibleDocketIds() {
+    if (!docketsGridApi) return null;
+    const visible = [];
+    docketsGridApi.forEachNodeAfterFilterAndSort(n => { if (n.data) visible.push(n.data.id); });
+    let total = 0;
+    docketsGridApi.forEachNode(() => total++);
+    return (visible.length && visible.length < total) ? visible : null;
+}
+
 function exportDocketsXLSX() {
     if (!activeProjectId) return;
-    window.open('/api/projects/' + activeProjectId + '/dockets/export-xlsx', '_blank');
+    let url = '/api/projects/' + activeProjectId + '/dockets/export-xlsx';
+    const ids = visibleDocketIds();
+    if (ids) url += '?docket_ids=' + ids.join(',');
+    window.open(url, '_blank');
 }
 
 // --- Claim / Unclaim Dockets ---
@@ -1882,151 +2437,280 @@ async function unclaimSelectedDockets() {
 
 // --- Folder Browse (Source Document Entry) ---
 
-async function computeFileHash(file) {
-    const buffer = await file.arrayBuffer();
-    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+function switchBrowseView(viewId) {
+    ['browse-list-view', 'browse-viewer-view', 'edit-scan-view'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = id === viewId ? '' : 'none';
+    });
 }
 
-async function onFolderSelected(input) {
-    if (!input.files || input.files.length === 0) return;
-    const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
-    browseFiles = Array.from(input.files).filter(f =>
-        allowed.includes(f.type) || /\.(pdf|jpe?g|png)$/i.test(f.name)
-    );
-    browseFiles.sort((a, b) => a.name.localeCompare(b.name));
+function showBrowseList() {
+    switchBrowseView('browse-list-view');
+}
 
-    if (browseFiles.length === 0) {
-        toast('No PDF or image files found', 'error');
+function showBrowseViewer() {
+    switchBrowseView('browse-viewer-view');
+}
+
+function showEditScan(docketId, filename, hash) {
+    switchBrowseView('edit-scan-view');
+    const fnEl = document.getElementById('edit-scan-filename');
+    if (fnEl) fnEl.textContent = filename || '';
+    const fpEl = document.getElementById('edit-scan-fp');
+    const fpHash = document.getElementById('edit-scan-hash');
+    if (fpEl && fpHash && hash) {
+        fpHash.textContent = hash;
+        fpEl.style.display = '';
+    }
+
+    const viewer = document.getElementById('edit-scan-viewer');
+    if (!viewer) return;
+    viewer.innerHTML = '<div class="pdf-placeholder"><div style="font-size:24px;opacity:0.4">Loading scan...</div></div>';
+
+    const url = API + '/api/scans/' + docketId;
+    fetch(url).then(resp => {
+        if (!resp.ok) {
+            resp.json().then(j => {
+                viewer.innerHTML = '<div class="pdf-placeholder"><div style="font-size:24px;opacity:0.4">&#9888;</div><div>' + esc(j.error || 'Failed to load') + '</div></div>';
+                const statusEl = document.getElementById('edit-scan-status');
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color:var(--danger)">' +
+                        (resp.status === 409 ? 'Hash mismatch' : 'Error') + '</span>';
+                }
+            }).catch(() => {
+                viewer.innerHTML = '<div class="pdf-placeholder"><div>Failed to load scan</div></div>';
+            });
+            return;
+        }
+        const ct = resp.headers.get('content-type') || '';
+        resp.blob().then(blob => {
+            const objUrl = URL.createObjectURL(blob);
+            if (ct.includes('pdf')) {
+                viewer.innerHTML = '<object data="' + objUrl + '" type="application/pdf" style="width:100%;height:100%"><p>PDF cannot be displayed. <a href="' + objUrl + '" target="_blank">Open in new tab</a></p></object>';
+            } else {
+                viewer.innerHTML = '<img src="' + objUrl + '" alt="' + esc(filename || 'scan') + '">';
+            }
+            const statusEl = document.getElementById('edit-scan-status');
+            if (statusEl) statusEl.innerHTML = '<span style="color:var(--success)">&#10003; Verified</span>';
+        });
+    }).catch(() => {
+        viewer.innerHTML = '<div class="pdf-placeholder"><div>Network error</div></div>';
+    });
+}
+
+async function unassignScan() {
+    if (!editingDocket || !editingDocket.id) return;
+    if (!confirm('Unassign the scan from this docket?')) return;
+    try {
+        await apiRequest('PUT', '/api/dockets/' + editingDocket.id, {
+            source_hash: null,
+            source_filename: null,
+            source_filepath: null,
+        });
+        editingDocket.source_hash = null;
+        editingDocket.source_filename = null;
+        editingDocket.source_filepath = null;
+        // Clear the intended association too, so a subsequent Save doesn't
+        // re-attach the scan from stale browse state (the bug being fixed).
+        currentScan = { hash: null, filename: null, filepath: null };
+        // Drop the just-unassigned file's selection so nothing points at it.
+        browseFileIndex = -1;
+        document.getElementById('f-dk-number').value = '';
+        const fpEl = document.getElementById('docket-fingerprint');
+        if (fpEl) fpEl.style.display = 'none';
+        showBrowseList();
+        toast('Scan unassigned', 'success');
+    } catch (e) { /* toasted */ }
+}
+
+
+// Open the OS-native folder picker (served by Flask — it runs locally, so it
+// CAN see the real filesystem the browser sandbox hides). Every file comes back
+// with its true absolute path, so nothing is typed and the stored path always
+// reopens. Falls back to manual entry on a headless/hosted box with no GUI.
+async function pickFolder() {
+    let res;
+    try {
+        res = await apiRequest('POST', '/api/pick-folder', {});
+    } catch (e) {
+        showManualFolderEntry('Folder picker unavailable — type the full path');
         return;
     }
-
-    toast('Hashing ' + browseFiles.length + ' files...', 'success');
-
-    // Compute hashes for all files
-    browseHashes = {};
-    for (const file of browseFiles) {
-        browseHashes[file.name] = await computeFileHash(file);
+    if (res && res.available === false) {
+        showManualFolderEntry(res.error || 'Folder picker unavailable here — type the full path');
+        return;
     }
+    if (!res || res.cancelled) return;
+    await loadFolderFiles(res.folder, res.files);
+}
 
-    // Check which hashes exist on server
+// Manual fallback: the server lists + fingerprints a typed folder path. Still
+// yields real absolute paths (the server abspath's it), so no relative-path trap.
+async function manualLoadFolder() {
+    const input = document.getElementById('browse-folder-path');
+    const folder = input ? input.value.trim() : '';
+    if (!folder) { toast('Enter a folder path', 'error'); return; }
+    try {
+        const res = await apiRequest('POST', '/api/list-folder', { path: folder });
+        await loadFolderFiles(res.folder, res.files);
+    } catch (e) { /* toasted */ }
+}
+
+function showManualFolderEntry(msg) {
+    const row = document.getElementById('browse-manual-row');
+    if (row) row.style.display = '';
+    const status = document.getElementById('browse-path-status');
+    if (status) {
+        status.style.display = '';
+        status.className = 'browse-path-status warn';
+        status.textContent = msg;
+    }
+}
+
+// Shared loader for both the native picker and the manual fallback. `files` is
+// [{name, path, hash}] straight from the server — no client-side hashing needed.
+async function loadFolderFiles(folder, files) {
+    if (!files || files.length === 0) {
+        toast('No PDF or image files in that folder', 'error');
+        return;
+    }
+    browseFiles = files;
+    browseFileIndex = -1;
+
+    const disp = document.getElementById('browse-folder-display');
+    if (disp) { disp.textContent = folder; disp.title = folder; }
+    const manualRow = document.getElementById('browse-manual-row');
+    if (manualRow) manualRow.style.display = 'none';
+    const status = document.getElementById('browse-path-status');
+    if (status) status.style.display = 'none';
+    localStorage.setItem('dctos_folder_path', folder);
+
+    // Flag which scans are already tied to a docket (by fingerprint).
+    browseHashes = {};
+    files.forEach(f => { browseHashes[f.name] = { hash: f.hash, entered: false }; });
     if (activeProjectId) {
         try {
-            const allHashes = Object.values(browseHashes);
             const resp = await apiRequest('POST',
                 '/api/projects/' + activeProjectId + '/check-hashes',
-                { hashes: allHashes }
-            );
-            const existingMap = {};
-            resp.existing.forEach(e => { existingMap[e.source_hash] = e; });
-            for (const [name, hash] of Object.entries(browseHashes)) {
-                const match = existingMap[hash];
-                if (match) {
-                    browseHashes[name] = { hash, entered: true, match };
-                } else {
-                    browseHashes[name] = { hash, entered: false };
-                }
-            }
-        } catch (e) {
-            // If check fails, mark all as unknown
-            for (const name of Object.keys(browseHashes)) {
-                browseHashes[name] = { hash: browseHashes[name], entered: false };
-            }
-        }
+                { hashes: files.map(f => f.hash) });
+            const map = {};
+            resp.existing.forEach(e => { map[e.source_hash] = e; });
+            files.forEach(f => {
+                if (map[f.hash]) browseHashes[f.name] = { hash: f.hash, entered: true, match: map[f.hash] };
+            });
+        } catch (e) { /* leave all pending */ }
     }
 
+    // Land on the list of un-entered scans — the user picks one to enter.
     renderBrowseFileList();
-    // Auto-select first un-entered file
-    const firstPending = browseFiles.findIndex(f =>
-        browseHashes[f.name] && !browseHashes[f.name].entered
-    );
-    selectBrowseFile(firstPending >= 0 ? firstPending : 0);
+    showBrowseList();
 }
 
 function renderBrowseFileList() {
-    const sel = document.getElementById('pdf-file-select');
-    if (!sel) return;
-    sel.innerHTML = browseFiles.map((f, i) => {
-        const info = browseHashes[f.name] || {};
-        const prefix = info.entered ? '✓ ' : '○ ';
-        return '<option value="' + i + '"' + (i === browseFileIndex ? ' selected' : '') + '>' +
-            prefix + esc(f.name) + '</option>';
+    const container = document.getElementById('browse-file-list');
+    if (!container) return;
+    if (browseFiles.length === 0) {
+        container.innerHTML = '<div class="pdf-placeholder"><div style="font-size:36px;margin-bottom:8px;opacity:0.4">&#128193;</div><div>Select a folder to see scans</div></div>';
+        return;
+    }
+    // Only un-assigned scans appear in the list. Once a scan's fingerprint is
+    // tied to a docket it drops off — keep the original array index on each
+    // entry so selectBrowseFile() still resolves the right File object.
+    const pending = browseFiles
+        .map((f, i) => ({ f, i }))
+        .filter(({ f }) => !(browseHashes[f.name] && browseHashes[f.name].entered));
+    if (pending.length === 0) {
+        container.innerHTML = '<div class="pdf-placeholder"><div style="font-size:36px;margin-bottom:8px;opacity:0.4">&#10003;</div><div>All scans in this folder are entered</div></div>';
+        updateBrowseProgress();
+        return;
+    }
+    container.innerHTML = pending.map(({ f, i }) => {
+        const active = i === browseFileIndex;
+        const cls = 'browse-file-item pending' + (active ? ' active' : '');
+        return '<div class="' + cls + '" onclick="selectBrowseFile(' + i + ')" title="' + esc(f.name) + '">' +
+            '<span class="browse-file-icon">&#9711;</span>' +
+            '<span class="browse-file-name">' + esc(f.name) + '</span>' +
+            '</div>';
     }).join('');
+    updateBrowseProgress();
+}
 
-    // Show nav controls
-    const nav = document.getElementById('pdf-tb-nav');
-    if (nav) nav.style.display = browseFiles.length > 0 ? '' : 'none';
+function updateBrowseProgress() {
+    const bar = document.getElementById('browse-progress');
+    if (!bar) return;
+    if (browseFiles.length === 0) { bar.style.display = 'none'; return; }
+    const entered = browseFiles.filter(f => browseHashes[f.name]?.entered).length;
+    const total = browseFiles.length;
+    bar.style.display = '';
+    const textEl = document.getElementById('browse-progress-text');
+    if (textEl) textEl.textContent = entered + ' / ' + total + ' entered';
+    const fill = document.getElementById('browse-progress-fill');
+    if (fill) fill.style.width = (total > 0 ? Math.round(entered / total * 100) : 0) + '%';
 }
 
 function selectBrowseFile(index) {
     if (index < 0 || index >= browseFiles.length) return;
     browseFileIndex = index;
     const file = browseFiles[index];
-
-    // Update dropdown selection
-    const sel = document.getElementById('pdf-file-select');
-    if (sel) sel.selectedIndex = index;
-
-    // Update counter
-    const navEl = document.getElementById('pdf-nav-info');
-    if (navEl) navEl.textContent = (index + 1) + '/' + browseFiles.length;
-
-    // Re-render dropdown to update status prefixes
-    renderBrowseFileList();
-
-    // Show/hide duplicate warning banner
     const info = browseHashes[file.name] || {};
-    let banner = document.getElementById('pdf-dupe-banner');
-    if (info.entered && info.match) {
-        const m = info.match;
-        const ref = m.docket_number ? ('Docket #' + esc(m.docket_number)) : ('Docket ID ' + m.id);
-        const dateStr = m.date ? (' on ' + m.date) : '';
-        if (!banner) {
-            banner = document.createElement('div');
-            banner.id = 'pdf-dupe-banner';
-            banner.className = 'pdf-dupe-banner';
-            const toolbar = document.querySelector('.pdf-toolbar');
-            if (toolbar) toolbar.parentNode.insertBefore(banner, toolbar.nextSibling);
-        }
-        banner.innerHTML = '<span class="dupe-icon">&#9888;</span>' +
-            '<span class="dupe-text">Already entered as <span class="dupe-ref">' +
-            ref + '</span>' + dateStr + '</span>';
-    } else if (banner) {
-        banner.remove();
+    const hash = info.hash || (typeof info === 'string' ? info : null);
+
+    // This file becomes the scan that Save will store against the docket.
+    currentScan = { hash: file.hash, filename: file.name, filepath: file.path };
+
+    // Update viewer toolbar
+    const fnEl = document.getElementById('browse-viewer-filename');
+    if (fnEl) fnEl.textContent = file.name;
+    const ctrEl = document.getElementById('browse-viewer-counter');
+    if (ctrEl) {
+        const pending = browseFiles.filter(f => !browseHashes[f.name]?.entered).length;
+        ctrEl.textContent = (index + 1) + '/' + browseFiles.length + ' (' + pending + ' pending)';
     }
 
-    // Update fingerprint display
+    // Update viewer fingerprint
+    const vfpEl = document.getElementById('browse-viewer-fp');
+    const vfpHash = document.getElementById('browse-viewer-hash');
+    if (vfpEl && vfpHash && hash) {
+        vfpHash.textContent = hash;
+        vfpEl.style.display = '';
+    }
+
+    // Update form fingerprint
     const fpEl = document.getElementById('docket-fingerprint');
     const fpHash = document.getElementById('fp-hash');
     const fpFile = document.getElementById('fp-file');
-    if (fpEl && fpHash) {
-        const hash = info.hash || (typeof info === 'string' ? info : null);
-        if (hash) {
-            fpHash.textContent = hash;
-            if (fpFile) fpFile.textContent = file.name;
-            fpEl.style.display = '';
+    if (fpEl && fpHash && hash) {
+        fpHash.textContent = hash;
+        if (fpFile) fpFile.textContent = file.name;
+        fpEl.style.display = '';
+    }
+
+    // Render the file in the viewer — served by Flask from its real path (the
+    // file lives on disk; we never held a browser File object for it).
+    const viewer = document.getElementById('pdf-viewer');
+    if (viewer) {
+        const url = API + '/api/scan-file?path=' + encodeURIComponent(file.path);
+        if (/\.pdf$/i.test(file.name)) {
+            viewer.innerHTML = '<object data="' + url + '" type="application/pdf" style="width:100%;height:100%"><p>PDF cannot be displayed. <a href="' + url + '" target="_blank">Open in new tab</a></p></object>';
+        } else {
+            viewer.innerHTML = '<img src="' + url + '" alt="' + esc(file.name) + '">';
         }
     }
 
-    // Display file in viewer
-    const viewer = document.getElementById('pdf-viewer');
-    if (!viewer) return;
+    showBrowseViewer();
+    renderBrowseFileList();
+}
 
-    const url = URL.createObjectURL(file);
-    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
-        viewer.innerHTML = '<object data="' + url + '" type="application/pdf" style="width:100%;height:100%"><p>PDF cannot be displayed. <a href="' + url + '" target="_blank">Open in new tab</a></p></object>';
-    } else {
-        viewer.innerHTML = '<img src="' + url + '" alt="' + esc(file.name) + '">';
+function browsePrevPending() {
+    for (let i = browseFileIndex - 1; i >= 0; i--) {
+        const info = browseHashes[browseFiles[i].name];
+        if (info && !info.entered) { selectBrowseFile(i); return; }
     }
-}
-
-function browsePrev() {
-    if (browseFileIndex > 0) selectBrowseFile(browseFileIndex - 1);
-}
-
-function browseNext() {
-    if (browseFileIndex < browseFiles.length - 1) selectBrowseFile(browseFileIndex + 1);
+    for (let i = browseFiles.length - 1; i > browseFileIndex; i--) {
+        const info = browseHashes[browseFiles[i].name];
+        if (info && !info.entered) { selectBrowseFile(i); return; }
+    }
+    toast('No more pending files', 'success');
 }
 
 function browseNextPending() {
@@ -2034,7 +2718,6 @@ function browseNextPending() {
         const info = browseHashes[browseFiles[i].name];
         if (info && !info.entered) { selectBrowseFile(i); return; }
     }
-    // Wrap around
     for (let i = 0; i < browseFileIndex; i++) {
         const info = browseHashes[browseFiles[i].name];
         if (info && !info.entered) { selectBrowseFile(i); return; }
@@ -2049,22 +2732,14 @@ function markCurrentFileEntered() {
     renderBrowseFileList();
 }
 
-function getCurrentFileHash() {
-    if (browseFileIndex < 0 || browseFileIndex >= browseFiles.length) return null;
-    const info = browseHashes[browseFiles[browseFileIndex].name];
-    return info ? (typeof info === 'string' ? info : info.hash) : null;
-}
-
-function getCurrentFileName() {
-    if (browseFileIndex < 0 || browseFileIndex >= browseFiles.length) return null;
-    return browseFiles[browseFileIndex].name;
-}
-
 // --- CSV Export / Import ---
 
 function exportDocketsCSV() {
     if (!activeProjectId) { toast('Select a project first', 'error'); return; }
-    window.open('/api/projects/' + activeProjectId + '/dockets/export-csv', '_blank');
+    let url = '/api/projects/' + activeProjectId + '/dockets/export-csv';
+    const ids = visibleDocketIds();
+    if (ids) url += '?docket_ids=' + ids.join(',');
+    window.open(url, '_blank');
 }
 
 function exportResourcesCSV() {
@@ -2150,6 +2825,11 @@ function openHelpDialog() {
         <div class="help-section">
             <h4>Getting Started</h4>
             <p>Select a project from the sidebar to begin. Each project tracks its own dockets, cost codes, work orders, and purchase orders.</p>
+        </div>
+        <div class="help-section">
+            <h4>Dashboard</h4>
+            <p>The <strong>Dashboard</strong> pill in the header opens an at-a-glance view of the whole project: headline tiles (total budget, spent, remaining, dockets, suppliers), a <strong>spend-over-time</strong> line against budget, a <strong>cost-by-work-order</strong> donut, <strong>PO drawdown</strong> and <strong>top-supplier</strong> bars, a <strong>claimed-vs-to-claim</strong> split, and a live <strong>cost-code burn-down</strong> — green under 80%, amber to 100%, red over budget.</p>
+            <p>Everything is a drill-down: click any bar, slice, or supplier to jump straight to its dockets (the list filters, with a removable chip), or click a tile to open the screen that owns it.</p>
         </div>
         <div class="help-section">
             <h4>Key Concepts</h4>

@@ -111,26 +111,41 @@ def do_install():
     app_dir = _get_app_dir()
     startup_dir = _get_startup_dir()
 
-    # Determine what command to run
-    exe = _find_dct_exe()
-    if exe:
-        run_cmd = f'"{exe}"'
+    # Determine the command line to run on login.
+    if getattr(sys, "frozen", False):
+        # Packaged (PyInstaller) build: relaunch the bundled windowed exe.
+        cmdline = f'"{sys.executable}" --no-browser'
     else:
-        # Fallback: use the Python interpreter directly
-        run_cmd = f'"{sys.executable}" -m dct_os'
+        exe = _find_dct_exe()
+        if exe:
+            cmdline = f'"{exe}" --no-browser'
+        else:
+            # Fallback: use the Python interpreter directly
+            cmdline = f'"{sys.executable}" -m dct_os --no-browser'
 
-    # Write a VBS launcher that hides the console window
+    db_path = app_dir / "dct_os.db"
+
+    # Write a VBS launcher that starts DCT-OS hidden (no console window) with
+    # the database living in app_dir. --no-browser keeps login starts silent:
+    # the browser only opens when you launch DCT-OS yourself.
+    #
+    # WshShell.Run takes a single command string, so the whole command line
+    # (including the quoted exe path) becomes one VBScript string literal —
+    # internal double-quotes are doubled per VBScript escaping rules.
+    vbs_run_arg = cmdline.replace('"', '""')
     vbs_path = app_dir / "dct-os-launcher.vbs"
     vbs_content = (
         f'Set WshShell = CreateObject("WScript.Shell")\r\n'
+        f'Set env = WshShell.Environment("Process")\r\n'
+        f'env("DCT_DATA_DIR") = "{app_dir}"\r\n'
         f'WshShell.CurrentDirectory = "{app_dir}"\r\n'
-        f'WshShell.Run {run_cmd}, 0, False\r\n'
+        f'WshShell.Run "{vbs_run_arg}", 0, False\r\n'
     )
     vbs_path.write_text(vbs_content, encoding="utf-8")
 
-    # Create a shortcut in the Startup folder
+    # Create a shortcut in the Startup folder, pointing at wscript + the VBS.
     lnk_path = startup_dir / "DCT-OS.lnk"
-    # Use PowerShell to create the .lnk (no external deps needed)
+    # Use PowerShell to create the .lnk (no external deps needed).
     ps_script = (
         f'$ws = New-Object -ComObject WScript.Shell; '
         f'$sc = $ws.CreateShortcut("{lnk_path}"); '
@@ -140,20 +155,17 @@ def do_install():
         f'$sc.Description = "DCT-OS Daily Cost Tracker"; '
         f'$sc.Save()'
     )
-    os.system(f'powershell -NoProfile -Command "{ps_script}"')
-
-    # Also set DCT_DATA_DIR in the VBS so the database lives in app_dir
-    db_path = app_dir / "dct_os.db"
-
-    # Rewrite VBS with the env var set
-    vbs_content = (
-        f'Set WshShell = CreateObject("WScript.Shell")\r\n'
-        f'Set env = WshShell.Environment("Process")\r\n'
-        f'env("DCT_DATA_DIR") = "{app_dir}"\r\n'
-        f'WshShell.CurrentDirectory = "{app_dir}"\r\n'
-        f'WshShell.Run {run_cmd}, 0, False\r\n'
-    )
-    vbs_path.write_text(vbs_content, encoding="utf-8")
+    # Run PowerShell hidden so no console window flashes during install.
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden",
+             "-Command", ps_script],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            check=False,
+        )
+    except Exception:
+        # Last-resort fallback (may briefly show a console window).
+        os.system(f'powershell -NoProfile -Command "{ps_script}"')
 
     print(f"DCT-OS v{__version__} installed for auto-start.")
     print(f"  Data folder: {app_dir}")
@@ -199,10 +211,8 @@ def do_uninstall():
 
 
 # ---------------------------------------------------------------------------
-# Upgrade with telemetry
+# Upgrade
 # ---------------------------------------------------------------------------
-
-TELEMETRY_URL = "https://telemetry.dct-os.dev/v1/upgrade"
 
 
 def _get_db_path():
@@ -253,25 +263,6 @@ def _collect_usage_stats():
     return stats
 
 
-def _send_telemetry(stats):
-    """POST usage stats to the telemetry endpoint. Fails silently."""
-    try:
-        import urllib.request
-        payload = json.dumps(stats).encode("utf-8")
-        req = urllib.request.Request(
-            TELEMETRY_URL,
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": "DCT-OS/%s" % __version__,
-            },
-            method="POST",
-        )
-        urllib.request.urlopen(req, timeout=5)
-    except Exception:
-        pass  # telemetry is best-effort, never block the upgrade
-
-
 def _save_upgrade_log(stats, to_version):
     """Save an upgrade log entry to the data directory (and to the optional
     remote log collector when DCT_OS_LOG_URL is configured)."""
@@ -313,7 +304,7 @@ def _version_newer(latest, current):
 
 
 def do_upgrade():
-    """Check for updates, collect telemetry, and upgrade via pip."""
+    """Check for a newer release and upgrade in place (pip installs only)."""
     print(f"DCT-OS v{__version__}")
     print("Checking for updates...")
     print()
@@ -330,13 +321,21 @@ def do_upgrade():
     print(f"  Update available: v{__version__} -> v{latest}")
     print()
 
-    # Collect and send anonymous usage stats
-    print("Collecting anonymous usage statistics...")
+    if getattr(sys, "frozen", False):
+        # The packaged Windows build has no pip to upgrade itself.
+        print("This is the packaged Windows build. To update, download and run")
+        print("the latest DCT-OS installer from:")
+        print("  https://github.com/h3ylis/dct-os/releases")
+        print("Your data is kept — the installer updates the program only.")
+        return
+
+    # Record a local upgrade log entry (stays on this machine; nothing is
+    # sent anywhere unless you have opted in via DCT_OS_LOG_URL).
+    print("Recording local upgrade log...")
     stats = _collect_usage_stats()
     stats["to_version"] = latest
-    _send_telemetry(stats)
     _save_upgrade_log(stats, latest)
-    print("  Stats saved to logs/upgrades.jsonl")
+    print("  Saved to logs/upgrades.jsonl")
     print()
 
     # Run pip upgrade
@@ -361,6 +360,44 @@ def do_upgrade():
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+def _pick_folder_to_file(outpath):
+    """Open a native folder dialog and write the chosen path to `outpath`.
+
+    Run as a short-lived subprocess by /api/pick-folder so the dialog gets a
+    fresh interpreter + main thread every time — tkinter is unreliable when a
+    second Tk() is created across the server's reused worker threads, which made
+    a second "Choose folder" silently come back empty. Writing to a file (not
+    stdout) keeps this working in the windowed, console-less frozen build too.
+    Honours DCT_PICK_FOLDER_TEST so the flow can be tested without a real GUI.
+    """
+    test = os.environ.get("DCT_PICK_FOLDER_TEST")
+    if test is not None:
+        # "__CANCEL__" stands in for the user cancelling (an empty env var can't
+        # be used — Windows drops empty-valued vars when spawning a subprocess).
+        text = "" if test == "__CANCEL__" else test
+    else:
+        try:
+            import tkinter
+            from tkinter import filedialog
+            root = tkinter.Tk()
+            root.withdraw()
+            try:
+                root.attributes("-topmost", True)
+            except Exception:
+                pass
+            folder = filedialog.askdirectory(
+                title="Select the folder of scanned dockets")
+            root.destroy()
+            text = folder or ""
+        except Exception:
+            text = "__NO_GUI__"
+    try:
+        with open(outpath, "w", encoding="utf-8") as f:
+            f.write(text)
+    except Exception:
+        pass
+
+
 def main():
     # Handle subcommands before starting the server
     if len(sys.argv) > 1:
@@ -374,6 +411,12 @@ def main():
         elif cmd == "upgrade":
             do_upgrade()
             return
+        elif cmd == "pick-folder":
+            # Internal: open the native folder dialog, write the path to the
+            # file given as the next arg. Invoked by the pick-folder endpoint.
+            if len(sys.argv) > 2:
+                _pick_folder_to_file(sys.argv[2])
+            return
 
     host = os.environ.get("DCT_HOST", "127.0.0.1")
     port = int(os.environ.get("DCT_PORT", "5000"))
@@ -381,10 +424,14 @@ def main():
 
     app = create_app()
 
-    if not debug and "--no-browser" not in sys.argv:
-        webbrowser.open(f"http://{host}:{port}")
+    # Show "localhost" in the address bar for loopback binds (matches the
+    # bookmark in the docs); fall back to the bind host otherwise.
+    browse_host = "localhost" if host in ("127.0.0.1", "0.0.0.0", "::1") else host
 
-    print(f"DCT-OS v{__version__} running at http://{host}:{port}")
+    if not debug and "--no-browser" not in sys.argv:
+        webbrowser.open(f"http://{browse_host}:{port}")
+
+    print(f"DCT-OS v{__version__} running at http://{browse_host}:{port}")
     app.run(host=host, port=port, debug=debug)
 
 

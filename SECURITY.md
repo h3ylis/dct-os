@@ -5,7 +5,7 @@
 If you find a security issue in DCT-OS, please report it privately — don't open a public issue.
 
 - **Preferred:** [GitHub private vulnerability reporting](../../security/advisories/new) — click "Report a vulnerability"
-- **Email:** astral2@gmx.de
+- **Email:** hello@dct-os.com
 
 You'll get an acknowledgement within a few days. Fixes for confirmed issues are released as soon as practical, and reporters are credited in the release notes unless they prefer otherwise.
 

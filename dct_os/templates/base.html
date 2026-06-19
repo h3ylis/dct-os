@@ -16,6 +16,7 @@
             <span class="brand-version">v{{ version }}</span>
         </div>
         <nav id="header-nav">
+            <button class="nav-btn nav-dashboard" onclick="showPanel('dashboard')" id="tab-dashboard" data-tip="The whole project at a glance&#10;Live budget burn-down for every cost code" data-tip-pos="below">Dashboard</button>
             <button class="nav-btn" onclick="showPanel('dockets')" id="tab-dockets" data-tip="Alt+Shift+D — new docket&#10;Source documents entered against work orders and cost codes" data-tip-pos="below">Dockets</button>
             <button class="nav-btn" onclick="showPanel('cost-codes')" id="tab-cost-codes" data-tip="Alt+Shift+C — new cost code&#10;Internal budget line items for this project" data-tip-pos="below">Cost Codes</button>
             <button class="nav-btn" onclick="showPanel('work-orders')" id="tab-work-orders" data-tip="Alt+Shift+W — new work order&#10;Client-facing scope items that group docket entries" data-tip-pos="below">Work Orders</button>
@@ -49,6 +50,15 @@
         </aside>
 
         <main id="main">
+            <div class="panel" id="panel-dashboard">
+                <div class="dashboard-scroll" id="dashboard-body">
+                    <div class="empty-state">
+                        <h2>Select a project to get started</h2>
+                        <p>The dashboard shows a live budget burn-down across every cost code.</p>
+                    </div>
+                </div>
+            </div>
+
             <div class="panel active" id="panel-dockets">
                 <div class="panel-toolbar">
                     <div class="stats-bar" id="stats-bar">
@@ -56,6 +66,7 @@
                         <div class="stat" data-tip="Sum of all docket line amounts" data-tip-pos="below"><span class="stat-label">Total Spend</span><span class="stat-value" id="stat-spend">$0</span></div>
                         <div class="stat" data-tip="Distinct suppliers across all dockets and purchase orders" data-tip-pos="below"><span class="stat-label">Suppliers</span><span class="stat-value" id="stat-suppliers">0</span></div>
                     </div>
+                    <span id="docket-filter-chip" class="filter-chip" style="display:none" onclick="clearDocketDrill()" data-tip="Clear the dashboard filter" data-tip-pos="below"><span class="chip-text"></span></span>
                     <button class="btn btn-primary" onclick="openDocketDialog()" data-tip="Enter a new source document with header and line items" data-tip-pos="below">+ Add Docket</button>
                     <div class="dropdown">
                         <button class="btn" onclick="toggleDropdown(event, 'dockets-data-menu')" data-tip="Import and export" data-tip-pos="left">Data &#9662;</button>
@@ -128,16 +139,20 @@
                     </div>
                     <div class="filter-field rpt-date-fields" id="rpt-date-fields">
                         <label>From</label>
-                        <input type="date" id="rpt-date-from">
+                        <input type="date" id="rpt-date-from" onchange="scheduleReportRun()">
                     </div>
                     <div class="filter-field rpt-date-fields" id="rpt-date-fields-to">
                         <label>To</label>
-                        <input type="date" id="rpt-date-to">
+                        <input type="date" id="rpt-date-to" onchange="scheduleReportRun()">
                     </div>
                     <div class="filter-actions">
-                        <button class="btn btn-primary" onclick="runDocketSummary()">Generate</button>
-                        <button class="btn" id="rpt-csv-btn" onclick="exportSummaryCSV()" style="display:none">Export CSV</button>
-                        <button class="btn" id="rpt-xlsx-btn" onclick="exportSummaryXLSX()" style="display:none">Export Excel</button>
+                        <div class="dropdown" id="rpt-data-menu-wrap" style="display:none">
+                            <button class="btn" onclick="toggleDropdown(event, 'reports-data-menu')" data-tip="Export this report" data-tip-pos="left">Data &#9662;</button>
+                            <div class="dropdown-menu" id="reports-data-menu">
+                                <button onclick="exportSummaryCSV()">Export CSV</button>
+                                <button onclick="exportSummaryXLSX()">Export Excel</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="rpt-docket-picker" id="rpt-docket-picker" style="display:none">

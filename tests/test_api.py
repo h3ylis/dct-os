@@ -456,6 +456,88 @@ def test_cost_report_empty(client):
         assert cc["actual_spend"] == 0
 
 
+def test_dashboard(client):
+    """The combined dashboard endpoint rolls up this project's own data."""
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/dashboard")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+
+    # All seven sections are present.
+    for key in ("tiles", "cost_codes", "spend_series", "wo_costs",
+                "po_drawdown", "top_suppliers", "claimed", "to_claim"):
+        assert key in data
+
+    # Tiles: budget = 420k + 650k, spent = 5645, 3 dockets, 1 supplier.
+    tiles = data["tiles"]
+    assert tiles["total_budget"] == 1070000
+    assert tiles["total_spent"] == 5645.0
+    assert tiles["remaining"] == 1070000 - 5645.0
+    assert tiles["total_dockets"] == 3
+    assert tiles["supplier_count"] == 1
+
+    # Cost codes: same actuals as the cost report.
+    ccs = {c["code"]: c for c in data["cost_codes"]}
+    assert ccs["CT-01"]["actual_spend"] == 3765.0
+    assert ccs["CT-02"]["actual_spend"] == 1880.0
+
+    # Cost by work order: WT-001 = 2640 + 1125, WT-002 = 1880.
+    wos = {w["number"]: w["amount"] for w in data["wo_costs"]}
+    assert wos["WT-001"] == 3765.0
+    assert wos["WT-002"] == 1880.0
+    # Sorted descending by amount.
+    amounts = [w["amount"] for w in data["wo_costs"]]
+    assert amounts == sorted(amounts, reverse=True)
+
+    # Spend over time: cumulative, ending at the grand total.
+    assert data["spend_series"]
+    assert data["spend_series"][-1]["cumulative"] == 5645.0
+
+    # PO drawdown: the one active PO, committed 45k, drawn 5645.
+    assert len(data["po_drawdown"]) == 1
+    po = data["po_drawdown"][0]
+    assert po["number"] == "PT-001"
+    assert po["committed"] == 45000.0
+    assert po["drawn"] == 5645.0
+
+    # Top suppliers: one supplier with the full spend.
+    assert data["top_suppliers"] == [{"name": "Test Supplier", "amount": 5645.0}]
+
+    # Nothing claimed yet → all to-claim.
+    assert data["claimed"] == 0
+    assert data["to_claim"] == 5645.0
+
+
+def test_dashboard_claimed_split(client):
+    """Claiming a docket moves its spend from to-claim to claimed."""
+    pid, ids = _create_test_dockets(client)
+    # Claim the first docket (RGC-T001 = $2,640).
+    resp = client.post(
+        f"/api/projects/{pid}/dockets/claim",
+        json={"docket_ids": [ids[0]], "reference": "CLAIM-01"},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+
+    data = json.loads(client.get(f"/api/projects/{pid}/dashboard").data)
+    assert data["claimed"] == 2640.0
+    assert data["to_claim"] == 3005.0  # 5645 - 2640
+
+
+def test_dashboard_empty_project(client):
+    """A project with no dockets returns zeroed tiles and empty sections."""
+    resp = client.get("/api/projects/2/dashboard")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["tiles"]["total_spent"] == 0
+    assert data["tiles"]["total_dockets"] == 0
+    assert data["spend_series"] == []
+    assert data["wo_costs"] == []
+    assert data["top_suppliers"] == []
+    assert data["claimed"] == 0
+    assert data["to_claim"] == 0
+
+
 def test_project_suppliers(client):
     pid, ids = _create_test_dockets(client)
     resp = client.get(f"/api/projects/{pid}/suppliers")
@@ -587,6 +669,7 @@ def test_check_hashes(client):
         "docket_number": "HASH-001",
         "source_hash": "abc123def456",
         "source_filename": "test_docket.pdf",
+        "source_filepath": "/scans/test_docket.pdf",
         "lines": [{"description": "Test", "qty": 1, "rate": 100}],
     }
     resp = client.post(f"/api/projects/{pid}/dockets",
@@ -595,6 +678,7 @@ def test_check_hashes(client):
     created = json.loads(resp.data)
     assert created["source_hash"] == "abc123def456"
     assert created["source_filename"] == "test_docket.pdf"
+    assert created["source_filepath"] == "/scans/test_docket.pdf"
 
     # Check that the hash is found
     check = client.post(f"/api/projects/{pid}/check-hashes",
@@ -753,6 +837,39 @@ def test_export_dockets_csv(client):
     assert "Date" in lines[0]
     assert "Docket #" in lines[0]
     assert "Amount" in lines[0]
+
+
+def test_export_dockets_csv_filtered_by_ids(client):
+    """Export honours a docket_ids selection (the grid's filtered view)."""
+    pid, ids = _create_test_dockets(client)
+    # Export only the first docket (RGC-T001, 2 lines)
+    resp = client.get(f"/api/projects/{pid}/dockets/export-csv?docket_ids={ids[0]}")
+    assert resp.status_code == 200
+    lines = resp.data.decode("utf-8").strip().split("\n")
+    assert len(lines) == 3  # header + 2 line items, not all 4
+
+    # Two dockets selected → their combined lines (2 + 1 = 3)
+    resp = client.get(
+        f"/api/projects/{pid}/dockets/export-csv?docket_ids={ids[0]},{ids[1]}"
+    )
+    lines = resp.data.decode("utf-8").strip().split("\n")
+    assert len(lines) == 4  # header + 3 line items
+
+    # No docket_ids → everything (4 line items across 3 dockets)
+    resp = client.get(f"/api/projects/{pid}/dockets/export-csv")
+    lines = resp.data.decode("utf-8").strip().split("\n")
+    assert len(lines) == 5
+
+
+def test_export_dockets_xlsx_filtered_by_ids(client):
+    import io as _io
+    from openpyxl import load_workbook
+
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/projects/{pid}/dockets/export-xlsx?docket_ids={ids[0]}")
+    assert resp.status_code == 200
+    ws = load_workbook(_io.BytesIO(resp.data)).active
+    assert ws.max_row == 3  # header + 2 lines
 
 
 def test_export_empty_project_csv(client):
@@ -1209,4 +1326,367 @@ def test_docket_summary_xlsx(client):
     # Last row is the grand total
     last = [c.value for c in ws[ws.max_row]]
     assert "Grand Total" in last
+
+
+# ---------------------------------------------------------------------------
+# Scan serving / source_filepath tests
+# ---------------------------------------------------------------------------
+
+
+def test_source_filepath_persists(client):
+    """source_filepath is stored on create and returned on GET."""
+    pid, _ = _create_test_dockets(client)
+    resp = client.post(
+        f"/api/projects/{pid}/dockets",
+        json={
+            "date": "2025-06-01",
+            "docket_number": "FP-001",
+            "source_hash": "aabbccdd",
+            "source_filename": "scan.pdf",
+            "source_filepath": "C:/Scans/June/scan.pdf",
+            "lines": [{"description": "Item", "qty": 1, "rate": 50}],
+        },
+        content_type="application/json",
+    )
+    assert resp.status_code == 201
+    did = json.loads(resp.data)["id"]
+
+    docket = json.loads(client.get(f"/api/dockets/{did}").data)
+    assert docket["source_filepath"] == "C:/Scans/June/scan.pdf"
+    assert docket["source_hash"] == "aabbccdd"
+    assert docket["source_filename"] == "scan.pdf"
+
+
+def test_scan_endpoint_404_no_filepath(client):
+    """GET /api/scans/<id> returns 404 when no filepath is stored."""
+    pid, ids = _create_test_dockets(client)
+    resp = client.get(f"/api/scans/{ids[0]}")
+    assert resp.status_code == 404
+    data = json.loads(resp.data)
+    assert "No scan" in data["error"]
+
+
+def test_scan_endpoint_404_missing_file(client):
+    """GET /api/scans/<id> returns 404 when file doesn't exist on disk."""
+    pid, _ = _create_test_dockets(client)
+    resp = client.post(
+        f"/api/projects/{pid}/dockets",
+        json={
+            "date": "2025-06-01",
+            "source_hash": "deadbeef",
+            "source_filepath": "/nonexistent/scan.pdf",
+            "lines": [{"description": "X", "qty": 1, "rate": 10}],
+        },
+        content_type="application/json",
+    )
+    did = json.loads(resp.data)["id"]
+    scan_resp = client.get(f"/api/scans/{did}")
+    assert scan_resp.status_code == 404
+    assert "not found" in json.loads(scan_resp.data)["error"].lower()
+
+
+def test_scan_endpoint_serves_file(client):
+    """GET /api/scans/<id> serves the file when path and hash match."""
+    pid, _ = _create_test_dockets(client)
+
+    import hashlib
+    content = b"fake PDF content for testing"
+    h = hashlib.sha256(content).hexdigest()
+
+    fd, path = tempfile.mkstemp(suffix=".pdf")
+    os.write(fd, content)
+    os.close(fd)
+    try:
+        resp = client.post(
+            f"/api/projects/{pid}/dockets",
+            json={
+                "date": "2025-06-01",
+                "source_hash": h,
+                "source_filepath": path,
+                "lines": [{"description": "Y", "qty": 1, "rate": 10}],
+            },
+            content_type="application/json",
+        )
+        did = json.loads(resp.data)["id"]
+        scan_resp = client.get(f"/api/scans/{did}")
+        assert scan_resp.status_code == 200
+        assert scan_resp.data == content
+        scan_resp.close()
+    finally:
+        try:
+            os.unlink(path)
+        except PermissionError:
+            pass
+
+
+def test_scan_endpoint_hash_mismatch(client):
+    """GET /api/scans/<id> returns 409 when the file hash changed."""
+    pid, _ = _create_test_dockets(client)
+
+    fd, path = tempfile.mkstemp(suffix=".pdf")
+    os.write(fd, b"original")
+    os.close(fd)
+    try:
+        resp = client.post(
+            f"/api/projects/{pid}/dockets",
+            json={
+                "date": "2025-06-01",
+                "source_hash": "wrong_hash",
+                "source_filepath": path,
+                "lines": [{"description": "Z", "qty": 1, "rate": 10}],
+            },
+            content_type="application/json",
+        )
+        did = json.loads(resp.data)["id"]
+        scan_resp = client.get(f"/api/scans/{did}")
+        assert scan_resp.status_code == 409
+        data = json.loads(scan_resp.data)
+        assert "mismatch" in data["error"].lower()
+        scan_resp.close()
+    finally:
+        try:
+            os.unlink(path)
+        except PermissionError:
+            pass
+
+
+def test_unassign_scan(client):
+    """PUT with null source fields clears the association."""
+    pid, _ = _create_test_dockets(client)
+    resp = client.post(
+        f"/api/projects/{pid}/dockets",
+        json={
+            "date": "2025-06-01",
+            "docket_number": "UNSCAN-001",
+            "source_hash": "aabb",
+            "source_filename": "doc.pdf",
+            "source_filepath": "/path/doc.pdf",
+            "lines": [{"description": "A", "qty": 1, "rate": 10}],
+        },
+        content_type="application/json",
+    )
+    did = json.loads(resp.data)["id"]
+
+    # Unassign
+    client.put(
+        f"/api/dockets/{did}",
+        json={
+            "source_hash": None,
+            "source_filename": None,
+            "source_filepath": None,
+        },
+        content_type="application/json",
+    )
+
+    docket = json.loads(client.get(f"/api/dockets/{did}").data)
+    assert docket["source_hash"] is None
+    assert docket["source_filename"] is None
+    assert docket["source_filepath"] is None
+
+
+def test_check_path(client):
+    """check-path tells the UI whether a pasted path resolves to a real file."""
+    # A real file on disk → absolute + exists
+    fd, path = tempfile.mkstemp(suffix=".pdf")
+    os.write(fd, b"data")
+    os.close(fd)
+    try:
+        resp = client.post("/api/check-path", json={"path": path})
+        data = json.loads(resp.data)
+        assert data["absolute"] is True
+        assert data["exists"] is True
+    finally:
+        os.unlink(path)
+
+    # A bare relative folder name (the trap) → not absolute, not found
+    resp = client.post("/api/check-path", json={"path": "Corpus/scan.pdf"})
+    data = json.loads(resp.data)
+    assert data["absolute"] is False
+    assert data["exists"] is False
+
+    # An absolute path to a missing file → absolute but not found
+    resp = client.post(
+        "/api/check-path", json={"path": "/nonexistent/dir/scan.pdf"}
+    )
+    data = json.loads(resp.data)
+    assert data["exists"] is False
+
+    # Empty / missing path → both false, no crash
+    resp = client.post("/api/check-path", json={})
+    data = json.loads(resp.data)
+    assert data["exists"] is False
+    assert data["absolute"] is False
+
+
+def test_list_folder(client):
+    """list-folder fingerprints scannable files at a real path, with absolute
+    paths, and ignores non-scan files."""
+    import hashlib
+    d = tempfile.mkdtemp()
+    try:
+        with open(os.path.join(d, "a.pdf"), "wb") as f:
+            f.write(b"pdf-a")
+        with open(os.path.join(d, "b.png"), "wb") as f:
+            f.write(b"png-b")
+        with open(os.path.join(d, "notes.txt"), "wb") as f:
+            f.write(b"ignore me")
+
+        resp = client.post("/api/list-folder", json={"path": d})
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        names = sorted(f["name"] for f in data["files"])
+        assert names == ["a.pdf", "b.png"]  # .txt skipped
+        for f in data["files"]:
+            assert os.path.isabs(f["path"])
+            assert len(f["hash"]) == 64
+        # Hash matches a direct computation
+        amatch = next(f for f in data["files"] if f["name"] == "a.pdf")
+        assert amatch["hash"] == hashlib.sha256(b"pdf-a").hexdigest()
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_list_folder_missing(client):
+    """list-folder 404s on a folder that doesn't exist."""
+    resp = client.post("/api/list-folder", json={"path": "/no/such/folder/xyz"})
+    assert resp.status_code == 404
+
+
+def test_scan_file_serves_browsed(client):
+    """scan-file serves a file once its folder has been browsed."""
+    d = tempfile.mkdtemp()
+    try:
+        p = os.path.join(d, "doc.pdf")
+        with open(p, "wb") as f:
+            f.write(b"hello scan")
+        # Browsing the folder authorises previews from it
+        client.post("/api/list-folder", json={"path": d})
+        resp = client.get("/api/scan-file", query_string={"path": p})
+        assert resp.status_code == 200
+        assert resp.data == b"hello scan"
+        resp.close()
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_scan_file_rejects_unbrowsed(client):
+    """scan-file refuses a path whose folder hasn't been browsed (403)."""
+    d = tempfile.mkdtemp()
+    try:
+        p = os.path.join(d, "secret.pdf")
+        with open(p, "wb") as f:
+            f.write(b"x")
+        # No list-folder call for this dir → not authorised
+        resp = client.get("/api/scan-file", query_string={"path": p})
+        assert resp.status_code == 403
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_pick_folder_subprocess(client, monkeypatch):
+    """pick-folder shells out to a fresh process; the test hook returns a real
+    folder so the full subprocess + listing path runs without a GUI."""
+    import shutil
+    d = tempfile.mkdtemp()
+    try:
+        with open(os.path.join(d, "scan.pdf"), "wb") as f:
+            f.write(b"x")
+        monkeypatch.setenv("DCT_PICK_FOLDER_TEST", d)
+        resp = client.post("/api/pick-folder", json={})
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert data["available"] is True
+        assert data.get("cancelled") is not True
+        assert os.path.samefile(data["folder"], d)
+        assert any(f["name"] == "scan.pdf" for f in data["files"])
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_pick_folder_cancelled(client, monkeypatch):
+    """An empty pick (user cancelled the dialog) → cancelled, no files."""
+    monkeypatch.setenv("DCT_PICK_FOLDER_TEST", "__CANCEL__")
+    resp = client.post("/api/pick-folder", json={})
+    data = json.loads(resp.data)
+    assert data["available"] is True
+    assert data["cancelled"] is True
+
+
+def test_fs_browse_disabled_gate(client, monkeypatch):
+    """With DCT_OS_NO_FS_BROWSE set (e.g. the public demo), the filesystem
+    browse endpoints refuse to expose the server's files."""
+    monkeypatch.setenv("DCT_OS_NO_FS_BROWSE", "1")
+
+    resp = client.post("/api/pick-folder", json={})
+    assert json.loads(resp.data)["available"] is False
+
+    resp = client.post("/api/list-folder", json={"path": "/"})
+    assert resp.status_code == 403
+
+    resp = client.get("/api/scan-file", query_string={"path": "/etc/hosts"})
+    assert resp.status_code == 403
+
+
+def test_scan_root_restriction(client, monkeypatch):
+    """With DCT_OS_SCAN_ROOT set, /api/scans refuses paths outside the root
+    (the demo hardening) but still serves ones inside it."""
+    import shutil
+    root = tempfile.mkdtemp()
+    outside = tempfile.mkdtemp()
+    try:
+        inside_path = os.path.join(root, "ok.pdf")
+        with open(inside_path, "wb") as f:
+            f.write(b"inside")
+        outside_path = os.path.join(outside, "secret.pdf")
+        with open(outside_path, "wb") as f:
+            f.write(b"secret")
+
+        pid, _ = _create_test_dockets(client)
+        # Docket pointing inside the root, and one pointing outside it.
+        d_in = json.loads(client.post(f"/api/projects/{pid}/dockets", json={
+            "date": "2025-06-01", "source_filepath": inside_path,
+            "lines": [{"description": "x", "qty": 1, "rate": 1}]}).data)["id"]
+        d_out = json.loads(client.post(f"/api/projects/{pid}/dockets", json={
+            "date": "2025-06-01", "source_filepath": outside_path,
+            "lines": [{"description": "y", "qty": 1, "rate": 1}]}).data)["id"]
+
+        monkeypatch.setenv("DCT_OS_SCAN_ROOT", root)
+        r_in = client.get(f"/api/scans/{d_in}")
+        assert r_in.status_code == 200
+        assert r_in.data == b"inside"
+        r_in.close()
+        r_out = client.get(f"/api/scans/{d_out}")
+        assert r_out.status_code == 403  # outside the root → refused
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(outside, ignore_errors=True)
+
+
+def test_scan_endpoint_404_after_unassign(client):
+    """After unassigning, the scan endpoint returns 404."""
+    pid, _ = _create_test_dockets(client)
+    resp = client.post(
+        f"/api/projects/{pid}/dockets",
+        json={
+            "date": "2025-06-01",
+            "source_hash": "cc",
+            "source_filepath": "/some/file.pdf",
+            "lines": [{"description": "B", "qty": 1, "rate": 10}],
+        },
+        content_type="application/json",
+    )
+    did = json.loads(resp.data)["id"]
+
+    # Unassign
+    client.put(
+        f"/api/dockets/{did}",
+        json={"source_hash": None, "source_filepath": None},
+        content_type="application/json",
+    )
+
+    scan_resp = client.get(f"/api/scans/{did}")
+    assert scan_resp.status_code == 404
 

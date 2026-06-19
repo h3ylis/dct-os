@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dct-os"
-version = "1.0.0"
+version = "1.2.0"
 description = "Daily cost tracking for civil engineering"
 readme = "README.md"
 license = "BUSL-1.1"
 requires-python = ">=3.11"
-authors = [{ name = "Andy Unger", email = "astral2@gmx.de" }]
+authors = [{ name = "Andy Unger", email = "hello@dct-os.com" }]
 keywords = ["civil-engineering", "cost-tracking", "project-management"]
 classifiers = [
     "Development Status :: 4 - Beta",
