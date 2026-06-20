@@ -1864,6 +1864,10 @@ body {
 
 [data-tip]:hover::after {
     opacity: 1;
+    /* Wait for a real, deliberate hover before showing (hover-intent) so tips
+       don't pop while you're moving to — and clicking — a button. Hiding stays
+       instant; the delay lives only on the hover (show) transition. */
+    transition-delay: 2s;
 }
 
 /* Tooltip below variant */
@@ -2391,23 +2395,49 @@ body {
 }
 
 /* Drill-down filter chip in the dockets toolbar */
+/* Active dashboard filter — a compact amber pill: a funnel mark, the filtered
+   value (ellipsised if long), and an inline ✕ that pops on hover. Amber so it
+   reads as "a filter is on", not just another blue chip. */
 .filter-chip {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 12px;
-    background: var(--primary-light);
-    color: var(--primary);
-    border: 1px solid var(--primary);
+    gap: 6px;
+    padding: 4px 5px 4px 9px;
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #f6c453;
     border-radius: 999px;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
+    line-height: 1;
     cursor: pointer;
     white-space: nowrap;
 }
-.filter-chip::after {
-    content: "\2715"; /* ✕ */
-    font-size: 11px;
-    opacity: 0.8;
+.filter-chip:hover { background: #fde9a8; }
+.filter-chip .chip-funnel {
+    width: 11px;
+    height: 11px;
+    fill: currentColor;
+    opacity: 0.7;
+    flex-shrink: 0;
 }
-.filter-chip:hover { background: #dbeafe; }
+.filter-chip .chip-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+.filter-chip .chip-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    font-size: 10px;
+    line-height: 1;
+    color: #b45309;
+    flex-shrink: 0;
+    transition: background 0.12s, color 0.12s;
+}
+.filter-chip:hover .chip-x { background: rgba(180, 83, 9, 0.14); }
+.filter-chip .chip-x:hover { background: #d97706; color: #fff; }

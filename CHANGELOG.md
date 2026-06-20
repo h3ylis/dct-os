@@ -2,6 +2,40 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
+## [1.2.1] - 2026-06-20
+
+### Added
+
+- **Projects open themselves.** When you launch DCT-OS, a single project is now
+  selected automatically; if you have several, the last one you worked on
+  reopens — no more picking your project every time.
+
+### Changed
+
+- **Whole dollars, no cents.** Amounts and totals (dashboard, stat bars, cost
+  code budgets/actuals, PO drawdown, supplier and claim figures, report
+  subtotals and grand totals) now display as whole dollars — civil construction
+  doesn't track cost to the cent. Unit **rates** still show their cents (a line
+  marking rate is $1.80/m, not $2), as do the editable rate cells.
+- **Calmer tooltips.** Hover hints now wait for a deliberate hover before
+  appearing, so they no longer flash as the pointer passes over on its way to a
+  button.
+- **Unassigning a scan keeps the docket.** Detaching a scanned file from a docket
+  now removes only the file link — the docket number, supplier, and lines stay
+  put (a scan can be wrongly assigned to an otherwise-correct docket). To discard
+  the whole docket, use Delete.
+
+### Fixed
+
+- **Dashboard filters now replace instead of stacking.** Clicking a dashboard
+  item (a cost code, work order, supplier, …) filters the Dockets list to it.
+  Previously, clicking a *different* item left the first filter silently active,
+  so the list showed a confusing intersection of both; now each click replaces
+  the previous filter. The active filter shows as a compact amber pill — a
+  funnel mark, the value, and an inline ✕ to clear — and it tidies up after
+  itself: clearing that column's filter by hand drops the pill too, and
+  switching projects clears any leftover filter.
+
 ## [1.2.0] - 2026-06-20
 
 ### Added

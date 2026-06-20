@@ -66,8 +66,8 @@
                         <div class="stat" data-tip="Sum of all docket line amounts" data-tip-pos="below"><span class="stat-label">Total Spend</span><span class="stat-value" id="stat-spend">$0</span></div>
                         <div class="stat" data-tip="Distinct suppliers across all dockets and purchase orders" data-tip-pos="below"><span class="stat-label">Suppliers</span><span class="stat-value" id="stat-suppliers">0</span></div>
                     </div>
-                    <span id="docket-filter-chip" class="filter-chip" style="display:none" onclick="clearDocketDrill()" data-tip="Clear the dashboard filter" data-tip-pos="below"><span class="chip-text"></span></span>
                     <button class="btn btn-primary" onclick="openDocketDialog()" data-tip="Enter a new source document with header and line items" data-tip-pos="below">+ Add Docket</button>
+                    <span id="docket-filter-chip" class="filter-chip" style="display:none" onclick="clearDocketDrill()" title="Clear filter"><svg class="chip-funnel" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 3h13l-5 6v4l-3-1.5V9z"/></svg><span class="chip-text"></span><span class="chip-x" aria-hidden="true">&#10005;</span></span>
                     <div class="dropdown">
                         <button class="btn" onclick="toggleDropdown(event, 'dockets-data-menu')" data-tip="Import and export" data-tip-pos="left">Data &#9662;</button>
                         <div class="dropdown-menu" id="dockets-data-menu">

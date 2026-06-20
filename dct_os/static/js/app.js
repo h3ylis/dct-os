@@ -71,11 +71,24 @@ async function apiRequest(method, url, body) {
 
 function currency(val) {
     if (val == null || val === '') return '';
-    return '$' + Number(val).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Civil construction works in whole dollars — amounts and totals show no
+    // cents. (Unit rates keep their cents — see rateMoney below.)
+    return '$' + Number(val).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 function currencyFormatter(params) {
     return currency(params.value);
+}
+
+// Rates are the exception: a line-marking rate of $1.80/m or $42.50/tonne needs
+// its cents, so rate displays use this two-decimal formatter, not currency().
+function rateMoney(val) {
+    if (val == null || val === '') return '';
+    return '$' + Number(val).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function rateFormatter(params) {
+    return rateMoney(params.value);
 }
 
 function toast(msg, type) {
@@ -90,12 +103,34 @@ function toast(msg, type) {
 
 let allProjects = [];
 
+let _initialProjectLoad = true;
 async function loadProjects() {
+    // Fire-once on the FIRST invocation (not first resolution): clearing the flag
+    // synchronously before the await stops a pill click during the boot fetch from
+    // running auto-select a second time against a different (e.g. All) project set.
+    const isInitial = _initialProjectLoad;
+    _initialProjectLoad = false;
     try {
         allProjects = await apiFetch('/api/projects?status=' + projectFilter);
         renderProjectList();
+        if (isInitial) autoSelectProject();
     } catch (e) {
         toast('Failed to load projects', 'error');
+    }
+}
+
+// On first load only: a single project opens itself; with several, reopen the
+// last one used (remembered in localStorage). Nothing happens if there are
+// none, or if the remembered project no longer exists.
+function autoSelectProject() {
+    if (activeProjectId) return;
+    if (allProjects.length === 1) {
+        selectProject(allProjects[0].id);
+        return;
+    }
+    const last = localStorage.getItem('dctos_last_project');
+    if (last && allProjects.some(p => String(p.id) === String(last))) {
+        selectProject(Number(last));
     }
 }
 
@@ -140,6 +175,8 @@ function setProjectFilter(status, btn) {
 
 async function selectProject(id) {
     activeProjectId = id;
+    try { localStorage.setItem('dctos_last_project', id); } catch (e) { /* private mode */ }
+    clearDocketDrill();   // drop any dashboard filter left over from another project
     const project = allProjects.find(p => p.id === id);
     if (project) {
         const apn = document.getElementById('active-project-name');
@@ -247,20 +284,52 @@ function initDocketsGrid() {
             }
             return null;
         },
+        // Keep the dashboard "Filtered: …" chip honest. If the user clears the
+        // drilled column's filter themselves (via the AG-Grid header menu), drop
+        // the chip + drill state so a later chip-click can't wipe an unrelated
+        // manual filter. The drill code's own programmatic changes are suppressed
+        // via _applyingDrill so this doesn't fire mid-replace.
+        onFilterChanged: () => {
+            if (_applyingDrill || !_dashDrillField || !docketsGridApi) return;
+            if (!docketsGridApi.getFilterModel) return;
+            const model = docketsGridApi.getFilterModel();
+            // Emptying a filter via the header menu can leave a blank {filter:''}
+            // entry rather than removing the key, so test whether the drilled
+            // column is *meaningfully* filtered, not just present.
+            if (!model || !_dashFilterActive(model[_dashDrillField])) {
+                _dashDrillField = null;
+                const chip = document.getElementById('docket-filter-chip');
+                if (chip) chip.style.display = 'none';
+            }
+        },
     };
 
     const el = document.getElementById('dockets-grid');
     docketsGridApi = agGrid.createGrid(el, gridOptions);
 }
 
+// In-flight guard. A dashboard drill switches panels — showPanel() fires
+// refreshCurrentPanel() (which calls loadDockets) without awaiting it — and then
+// dashboardDrill awaits loadDockets() again before applying its column filter.
+// Without this, that's two concurrent GET .../dockets for identical data. The
+// guard is set synchronously before the first await, so the first call wins the
+// round-trip and any concurrent caller shares its promise. It clears once the
+// fetch settles, so a later sequential reload (e.g. after a save) still fetches.
+let _docketsInFlight = null;
 async function loadDockets() {
     if (!activeProjectId || !docketsGridApi) return;
-    try {
-        const data = await apiFetch(`/api/projects/${activeProjectId}/dockets`);
-        docketsGridApi.setGridOption('rowData', data);
-    } catch (e) {
-        toast('Failed to load dockets', 'error');
-    }
+    if (_docketsInFlight) return _docketsInFlight;
+    _docketsInFlight = (async () => {
+        try {
+            const data = await apiFetch(`/api/projects/${activeProjectId}/dockets`);
+            docketsGridApi.setGridOption('rowData', data);
+        } catch (e) {
+            toast('Failed to load dockets', 'error');
+        } finally {
+            _docketsInFlight = null;
+        }
+    })();
+    return _docketsInFlight;
 }
 
 async function loadSummary() {
@@ -360,7 +429,8 @@ async function loadCostCodes() {
 // an index — no string-escaping of supplier names, WO numbers etc. in markup.
 let _dashTileDrills = [];
 let _dashDrills = [];
-let _dashDrillField = 'cost_codes';  // which docket column the active chip filters
+let _dashDrillField = null;  // the docket column the active dashboard filter is on (null = none)
+let _applyingDrill = false;  // true while a drill applies filters programmatically (suppresses the reconcile listener)
 
 // Categorical palette for the work-order donut (deliberately NOT the budget
 // green/amber/red so a WO slice can't be mistaken for a burn-rate signal).
@@ -555,28 +625,58 @@ async function dashboardDrill(field, model, label) {
     applyDocketFilter(field, model, label);
 }
 
+// Is an AG-Grid filter-model entry a real, active filter? (Emptying a text
+// filter can leave a blank {filter:''} entry that AG-Grid still reports.)
+function _dashFilterActive(fm) {
+    if (!fm) return false;
+    if (Array.isArray(fm.conditions) && fm.conditions.length) return fm.conditions.some(_dashFilterActive);
+    if ('filter' in fm) return fm.filter !== null && fm.filter !== '' && fm.filter !== undefined;
+    if (Array.isArray(fm.values)) return fm.values.length > 0;
+    if (fm.dateFrom || fm.dateTo) return true;
+    return true;   // unknown-but-present shape -> treat as active (don't drop the chip)
+}
+
 function applyDocketFilter(field, model, label) {
     if (!docketsGridApi) return;
+    // Replace, don't stack: a previous drill on a *different* column would
+    // otherwise stay active and silently intersect with this one — the grid
+    // keeps showing the old selection while the chip names only the new one.
+    // Clear the prior dashboard field first, then apply the new filter.
+    const prevField = _dashDrillField;
     _dashDrillField = field;
-    const apply = () => {
-        docketsGridApi.onFilterChanged();
+    _applyingDrill = true;   // suppress the reconcile listener while we replace filters
+    const showChip = () => {
         const chip = document.getElementById('docket-filter-chip');
         if (chip) {
             chip.querySelector('.chip-text').textContent = label;
             chip.style.display = '';
         }
+        _applyingDrill = false;
+        docketsGridApi.onFilterChanged();
     };
-    const res = docketsGridApi.setColumnFilterModel(field, model);
-    if (res && typeof res.then === 'function') res.then(apply);
-    else apply();
+    const setNew = () => {
+        const res = docketsGridApi.setColumnFilterModel(field, model);
+        if (res && typeof res.then === 'function') res.then(showChip);
+        else showChip();
+    };
+    if (prevField && prevField !== field) {
+        const cleared = docketsGridApi.setColumnFilterModel(prevField, null);
+        if (cleared && typeof cleared.then === 'function') cleared.then(setNew);
+        else setNew();
+    } else {
+        setNew();
+    }
 }
 
 function clearDocketDrill() {
     const chip = document.getElementById('docket-filter-chip');
     if (chip) chip.style.display = 'none';
-    if (!docketsGridApi) return;
-    const res = docketsGridApi.setColumnFilterModel(_dashDrillField, null);
-    const after = () => docketsGridApi.onFilterChanged();
+    const field = _dashDrillField;
+    _dashDrillField = null;
+    if (!docketsGridApi || !field) return;
+    _applyingDrill = true;
+    const after = () => { _applyingDrill = false; docketsGridApi.onFilterChanged(); };
+    const res = docketsGridApi.setColumnFilterModel(field, null);
     if (res && typeof res.then === 'function') res.then(after);
     else after();
 }
@@ -837,7 +937,7 @@ function initResourcesGrid() {
         { field: 'unit', headerName: 'Unit', width: 80,
             headerTooltip: 'Unit of measure (Hr, Day, Tonne, m3, etc.)' },
         { field: 'supplier_name', headerName: 'Supplier', width: 200 },
-        { field: 'standard_rate', headerName: 'Rate', width: 120, type: 'numericColumn', valueFormatter: currencyFormatter,
+        { field: 'standard_rate', headerName: 'Rate', width: 120, type: 'numericColumn', valueFormatter: rateFormatter,
             headerTooltip: 'Default rate auto-filled when selecting this resource on a docket line' },
         { field: 'category', headerName: 'Category', width: 140,
             headerTooltip: 'Groups resources in the summary report' },
@@ -2265,7 +2365,7 @@ async function onRateCellChange(input) {
                 resource_id: resourceId, update_standard: true,
             });
             markRateEdited(lineKey);
-            const msg = 'Rate updated ' + currency(oldRate) + ' → ' + currency(newRate) +
+            const msg = 'Rate updated ' + rateMoney(oldRate) + ' → ' + rateMoney(newRate) +
                 (res.standard_updated ? ' · standard rate updated' : '');
             toastWithUndo(msg, async () => {
                 await applyRerate(lineIds, oldRate, {});
@@ -2296,7 +2396,7 @@ function showRateGate(input, lineIds, resourceId, oldRate, newRate) {
     overlay.id = 'rate-gate-overlay';
     overlay.innerHTML =
         '<div class="rate-gate">' +
-        '<p>' + currency(newRate) + ' is below the standard rate (' + currency(ref) + ') for ' +
+        '<p>' + rateMoney(newRate) + ' is below the standard rate (' + rateMoney(ref) + ') for ' +
         '<strong>' + esc(input.dataset.desc) + '</strong>.</p>' +
         '<div class="rate-gate-actions">' +
         '<button class="btn" id="rate-gate-oneoff">One-off for this claim</button>' +
@@ -2313,7 +2413,7 @@ function showRateGate(input, lineIds, resourceId, oldRate, newRate) {
                 resource_id: resourceId, update_standard: updateStandard,
             });
             markRateEdited(lineKey);
-            toast('Rate updated ' + currency(oldRate) + ' → ' + currency(newRate) +
+            toast('Rate updated ' + rateMoney(oldRate) + ' → ' + rateMoney(newRate) +
                 (updateStandard ? ' · standard rate updated' : ' (one-off)'));
             await refreshSummaryAfterRerate();
         } catch (e) { input.value = oldRate.toFixed(2); }
@@ -2342,7 +2442,7 @@ function offerAddResource(input, lineIds, rate) {
     overlay.id = 'rate-gate-overlay';
     overlay.innerHTML =
         '<div class="rate-gate">' +
-        '<p>Add <strong>' + esc(desc) + '</strong> @ ' + currency(rate) +
+        '<p>Add <strong>' + esc(desc) + '</strong> @ ' + rateMoney(rate) +
         (unit ? '/' + esc(unit) : '') + ' to your resources for next time?</p>' +
         '<div class="rate-gate-actions">' +
         '<button class="btn btn-primary" id="rate-gate-add">Add to resources</button>' +
@@ -2500,7 +2600,7 @@ function showEditScan(docketId, filename, hash) {
 
 async function unassignScan() {
     if (!editingDocket || !editingDocket.id) return;
-    if (!confirm('Unassign the scan from this docket?')) return;
+    if (!confirm('Detach the scanned file from this docket?\n\nThe docket and its details (number, supplier, lines) stay — only the scan link is removed. If the whole docket is wrong, use Delete instead.')) return;
     try {
         await apiRequest('PUT', '/api/dockets/' + editingDocket.id, {
             source_hash: null,
@@ -2515,11 +2615,13 @@ async function unassignScan() {
         currentScan = { hash: null, filename: null, filepath: null };
         // Drop the just-unassigned file's selection so nothing points at it.
         browseFileIndex = -1;
-        document.getElementById('f-dk-number').value = '';
+        // Keep the docket number and every other field — unassigning only
+        // detaches the file (the scan may have been wrongly assigned to an
+        // otherwise-correct docket). To discard the whole docket, use Delete.
         const fpEl = document.getElementById('docket-fingerprint');
         if (fpEl) fpEl.style.display = 'none';
         showBrowseList();
-        toast('Scan unassigned', 'success');
+        toast('Scan detached — docket details kept', 'success');
     } catch (e) { /* toasted */ }
 }
 
