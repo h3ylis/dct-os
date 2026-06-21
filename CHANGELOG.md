@@ -2,7 +2,7 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
-## [Unreleased]
+## [1.2.2] - 2026-06-21
 
 ### Changed
 
