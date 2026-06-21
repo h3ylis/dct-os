@@ -61,11 +61,6 @@
 
             <div class="panel active" id="panel-dockets">
                 <div class="panel-toolbar">
-                    <div class="stats-bar" id="stats-bar">
-                        <div class="stat" data-tip="Number of docket headers entered for this project" data-tip-pos="below"><span class="stat-label">Total Dockets</span><span class="stat-value" id="stat-count">0</span></div>
-                        <div class="stat" data-tip="Sum of all docket line amounts" data-tip-pos="below"><span class="stat-label">Total Spend</span><span class="stat-value" id="stat-spend">$0</span></div>
-                        <div class="stat" data-tip="Distinct suppliers across all dockets and purchase orders" data-tip-pos="below"><span class="stat-label">Suppliers</span><span class="stat-value" id="stat-suppliers">0</span></div>
-                    </div>
                     <button class="btn btn-primary" onclick="openDocketDialog()" data-tip="Enter a new source document with header and line items" data-tip-pos="below">+ Add Docket</button>
                     <span id="docket-filter-chip" class="filter-chip" style="display:none" onclick="clearDocketDrill()" title="Clear filter"><svg class="chip-funnel" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 3h13l-5 6v4l-3-1.5V9z"/></svg><span class="chip-text"></span><span class="chip-x" aria-hidden="true">&#10005;</span></span>
                     <div class="dropdown">
@@ -83,12 +78,6 @@
 
             <div class="panel" id="panel-cost-codes">
                 <div class="panel-toolbar">
-                    <div class="stats-bar" id="cc-stats-bar">
-                        <div class="stat" data-tip="Total budget across all cost codes" data-tip-pos="below"><span class="stat-label">Total Budget</span><span class="stat-value" id="cc-stat-budget">$0</span></div>
-                        <div class="stat" data-tip="Total actual spend from docket lines" data-tip-pos="below"><span class="stat-label">Total Actual</span><span class="stat-value" id="cc-stat-actual">$0</span></div>
-                        <div class="stat" data-tip="Remaining budget (budget minus actual)" data-tip-pos="below"><span class="stat-label">Remaining</span><span class="stat-value" id="cc-stat-remaining">$0</span></div>
-                        <div class="stat" data-tip="Overall budget utilisation" data-tip-pos="below"><span class="stat-label">Burn Rate</span><span class="stat-value" id="cc-stat-burn">0%</span></div>
-                    </div>
                     <button class="btn btn-primary" onclick="openCostCodeDialog()">+ Add Cost Code</button>
                 </div>
                 <div id="cost-codes-grid" class="ag-theme-alpine grid-container"></div>

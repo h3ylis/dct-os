@@ -2,6 +2,26 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **Totals moved into the grids.** The summary numbers that used to sit in a bar
+  above the Dockets and Cost Codes grids are now a **total row pinned to the
+  bottom of each grid** (Dockets, Cost Codes, Purchase Orders) — like a
+  spreadsheet's footer total — and it totals whatever rows are *currently shown*,
+  so filtering a column or drilling in from the Dashboard updates it live. The
+  Dashboard stays the home for the whole-project headline; the grid total answers
+  "what's *this view* worth?". The Resources grid has no total (you can't
+  meaningfully sum unit rates).
+- **Consistent dashboard bars.** The PO drawdown bars now use the same
+  green / amber / red health bands as the cost-code burn-down (green under 80%
+  drawn, amber to 100%, red overdrawn) instead of a separate steel-blue scheme.
+- **Richer sample project.** The bundled Warrawong Road sample is now a realistic
+  mid-flight job — a proper spend-over-time curve, a mix of healthy / amber /
+  over cost codes, and some claimed work — so the dashboard shows the app at its
+  best the first time you open it.
+
 ## [1.2.1] - 2026-06-20
 
 ### Added

@@ -263,9 +263,9 @@ function initDocketsGrid() {
             valueFormatter: p => p.value || '',
             headerTooltip: 'Claim or invoice reference if this docket has been tagged' },
         { headerName: '', width: 50, sortable: false, filter: false, resizable: false,
-            valueGetter: () => '⧈',
+            valueGetter: p => p.node.rowPinned ? '' : '⧈',
             cellStyle: { cursor: 'pointer', textAlign: 'center', fontSize: '16px', color: '#666' },
-            onCellClicked: params => copyDocket(params.data),
+            onCellClicked: params => { if (!params.node.rowPinned) copyDocket(params.data); },
             tooltipValueGetter: () => 'Copy this docket with today\'s date',
         },
     ];
@@ -276,6 +276,7 @@ function initDocketsGrid() {
         defaultColDef: { resizable: true, sortable: true, filter: true },
         animateRows: true,
         suppressCellFocus: true,
+        suppressColumnVirtualisation: true,
         tooltipShowDelay: 400,
         onRowDoubleClicked: params => openDocketDialog(params.data),
         getRowStyle: params => {
@@ -290,6 +291,7 @@ function initDocketsGrid() {
         // manual filter. The drill code's own programmatic changes are suppressed
         // via _applyingDrill so this doesn't fire mid-replace.
         onFilterChanged: () => {
+            updateDocketsTotal();   // keep the pinned total in step with the filtered view
             if (_applyingDrill || !_dashDrillField || !docketsGridApi) return;
             if (!docketsGridApi.getFilterModel) return;
             const model = docketsGridApi.getFilterModel();
@@ -323,6 +325,7 @@ async function loadDockets() {
         try {
             const data = await apiFetch(`/api/projects/${activeProjectId}/dockets`);
             docketsGridApi.setGridOption('rowData', data);
+            updateDocketsTotal();
         } catch (e) {
             toast('Failed to load dockets', 'error');
         } finally {
@@ -332,14 +335,41 @@ async function loadDockets() {
     return _docketsInFlight;
 }
 
-async function loadSummary() {
-    if (!activeProjectId) return;
-    try {
-        const s = await apiFetch(`/api/projects/${activeProjectId}/summary`);
-        document.getElementById('stat-count').textContent = s.total_dockets;
-        document.getElementById('stat-spend').textContent = currency(s.total_spend);
-        document.getElementById('stat-suppliers').textContent = s.supplier_count;
-    } catch (e) { /* non-critical */ }
+// The top stats bars were retired in favour of a filter-aware total row pinned
+// to the bottom of each money grid. loadSummary is kept as a no-op so its
+// existing call sites stay harmless.
+async function loadSummary() { /* retired — totals now live in each grid's pinned bottom row */ }
+
+// --- Grid total rows (pinned bottom, filter-aware) ---
+// Sum the given numeric fields over the rows currently shown (after filtering)
+// into a single pinned "Total (N)" row. Returns [] when the view is empty.
+function computeTotalRow(api, labelField, sumFields) {
+    if (!api) return [];
+    const totals = {};
+    sumFields.forEach(f => { totals[f] = 0; });
+    let n = 0;
+    api.forEachNodeAfterFilterAndSort(node => {
+        if (!node.data || node.rowPinned) return;
+        n++;
+        sumFields.forEach(f => { totals[f] += Number(node.data[f]) || 0; });
+    });
+    if (!n) return [];
+    const row = { _total: true };
+    row[labelField] = 'Total (' + n + ')';
+    sumFields.forEach(f => { row[f] = totals[f]; });
+    return [row];
+}
+function updateDocketsTotal() {
+    if (docketsGridApi) docketsGridApi.setGridOption('pinnedBottomRowData',
+        computeTotalRow(docketsGridApi, 'docket_number', ['line_count', 'total_amount']));
+}
+function updateCostCodesTotal() {
+    if (costCodesGridApi) costCodesGridApi.setGridOption('pinnedBottomRowData',
+        computeTotalRow(costCodesGridApi, 'code', ['budget_amount', 'actual_spend', 'variance']));
+}
+function updatePurchaseOrdersTotal() {
+    if (purchaseOrdersGridApi) purchaseOrdersGridApi.setGridOption('pinnedBottomRowData',
+        computeTotalRow(purchaseOrdersGridApi, 'number', ['value', 'spent', 'remaining']));
 }
 
 // --- Cost Codes Grid ---
@@ -388,6 +418,7 @@ function initCostCodesGrid() {
         suppressColumnVirtualisation: true,
         tooltipShowDelay: 400,
         onRowDoubleClicked: params => openCostCodeDialog(params.data),
+        onFilterChanged: () => updateCostCodesTotal(),
     };
 
     const el = document.getElementById('cost-codes-grid');
@@ -400,24 +431,11 @@ async function loadCostCodes() {
         // Load cost report (includes budget, actual_spend, variance)
         const data = await apiFetch(`/api/projects/${activeProjectId}/cost-report`);
         costCodesGridApi.setGridOption('rowData', data);
+        updateCostCodesTotal();
         // Force AG-Grid to re-render cellRenderer columns (burn bars, variance)
         setTimeout(() => costCodesGridApi.refreshCells({force: true}), 50);
         // Also load plain cost codes for dropdowns
         cachedCostCodes = await apiFetch(`/api/projects/${activeProjectId}/cost-codes`);
-        // Update stats bar
-        const totalBudget = data.reduce((s, r) => s + (r.budget_amount || 0), 0);
-        const totalActual = data.reduce((s, r) => s + (r.actual_spend || 0), 0);
-        const remaining = totalBudget - totalActual;
-        const burnPct = totalBudget > 0 ? Math.round((totalActual / totalBudget) * 100) : 0;
-        document.getElementById('cc-stat-budget').textContent = currency(totalBudget);
-        document.getElementById('cc-stat-actual').textContent = currency(totalActual);
-        const remEl = document.getElementById('cc-stat-remaining');
-        remEl.textContent = currency(Math.abs(remaining));
-        remEl.style.color = remaining < 0 ? '#dc3545' : '';
-        if (remaining < 0) remEl.textContent = '(' + remEl.textContent + ')';
-        const burnEl = document.getElementById('cc-stat-burn');
-        burnEl.textContent = burnPct + '%';
-        burnEl.style.color = burnPct > 100 ? '#dc3545' : burnPct > 80 ? '#f0ad4e' : '';
     } catch (e) {
         toast('Failed to load cost codes', 'error');
     }
@@ -778,7 +796,8 @@ function dashPoDrawdown(pos, reg) {
         const drawn = po.drawn || 0;
         const ratio = committed > 0 ? drawn / committed : 0;
         const fillPct = Math.min(ratio * 100, 100);
-        const cls = ratio > 1 ? 'po-over' : ratio > 0.9 ? 'po-warn' : 'po-ok';
+        // Same green/amber/red health bands as the cost-code burn-down.
+        const cls = ratio > 1 ? 'po-over' : ratio > 0.8 ? 'po-warn' : 'po-ok';
         const idx = reg(() => dashboardDrill('po_number',
             { filterType: 'text', type: 'contains', filter: po.number }, 'PO ' + po.number));
         const sup = po.supplier_name ? ' · ' + esc(po.supplier_name) : '';
@@ -897,7 +916,7 @@ function initPurchaseOrdersGrid() {
             headerTooltip: 'PO Value minus Spent — red if overspent' },
         { field: 'raised_date', headerName: 'Raised', width: 110 },
         { field: 'is_active', headerName: 'Active', width: 80,
-            valueFormatter: params => params.value ? 'Yes' : 'No',
+            valueFormatter: params => params.node.rowPinned ? '' : (params.value ? 'Yes' : 'No'),
             headerTooltip: 'Inactive POs are hidden from the docket entry dropdown' },
     ];
 
@@ -907,8 +926,10 @@ function initPurchaseOrdersGrid() {
         defaultColDef: { resizable: true, sortable: true, filter: true },
         animateRows: true,
         suppressCellFocus: true,
+        suppressColumnVirtualisation: true,
         tooltipShowDelay: 400,
         onRowDoubleClicked: params => openPurchaseOrderDialog(params.data),
+        onFilterChanged: () => updatePurchaseOrdersTotal(),
     };
 
     const el = document.getElementById('purchase-orders-grid');
@@ -921,6 +942,7 @@ async function loadPurchaseOrders() {
         const data = await apiFetch(`/api/projects/${activeProjectId}/purchase-orders`);
         purchaseOrdersGridApi.setGridOption('rowData', data);
         cachedPurchaseOrders = data;
+        updatePurchaseOrdersTotal();
     } catch (e) {
         toast('Failed to load purchase orders', 'error');
     }

@@ -599,6 +599,16 @@ body {
     min-height: 0;
 }
 
+/* Pinned "Total" row at the bottom of the money grids — reads like a
+   spreadsheet's footer total, and reflects whatever is currently filtered. */
+.ag-theme-alpine .ag-floating-bottom {
+    border-top: 2px solid #cbd5e1;
+}
+.ag-theme-alpine .ag-floating-bottom .ag-row {
+    font-weight: 700;
+    background: #f8fafc;
+}
+
 /* Empty state */
 .empty-state {
     display: flex;
@@ -2348,9 +2358,11 @@ body {
     border-radius: 5px;
     background: #2f6695;
 }
-.dash-track-fill.po-ok { background: #2f6695; }
-.dash-track-fill.po-warn { background: #d6920f; }
-.dash-track-fill.po-over { background: #d64545; }
+/* PO drawdown uses the cost-code burn-down's health palette:
+   green under 80% drawn, amber 80–100%, red overdrawn. */
+.dash-track-fill.po-ok { background: #28a745; }
+.dash-track-fill.po-warn { background: #f0ad4e; }
+.dash-track-fill.po-over { background: #dc3545; }
 .dash-track-fill.supplier { background: #2f6695; }
 
 /* Claimed vs to-claim — split bar + figures */
