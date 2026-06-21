@@ -967,7 +967,7 @@ def test_seed_dockets_exist_for_project_1(client):
     resp = client.get("/api/projects/1/dockets")
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert len(data) == 18  # 18 seed docket headers
+    assert len(data) == 38  # seed docket headers (realistic mid-flight sample)
     # Check a known docket
     rgc_0001 = [d for d in data if d["docket_number"] == "RGC-0001"]
     assert len(rgc_0001) == 1
@@ -987,7 +987,7 @@ def test_seed_summary_project_1(client):
     resp = client.get("/api/projects/1/summary")
     assert resp.status_code == 200
     data = json.loads(resp.data)
-    assert data["total_dockets"] == 18
+    assert data["total_dockets"] == 38
     # 8 distinct suppliers in seed POs + docket headers
     assert data["supplier_count"] >= 6
 
