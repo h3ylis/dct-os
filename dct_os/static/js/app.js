@@ -29,7 +29,7 @@ let cachedSuppliers = [];
 let docketLineCounter = 0;
 
 // Report state
-let reportMode = 'date';
+let reportMode = 'dockets';
 let reportDockets = [];
 
 // Folder browse state
@@ -2041,16 +2041,19 @@ function setReportMode(mode, btn) {
     if (btn) btn.classList.add('active');
 
     const dateFields = document.querySelectorAll('.rpt-date-fields');
-    const picker = document.getElementById('rpt-docket-picker');
-    if (mode === 'date') {
-        dateFields.forEach(f => f.style.display = '');
-        if (picker) picker.style.display = 'none';
-    } else {
-        dateFields.forEach(f => f.style.display = 'none');
-        if (picker) picker.style.display = '';
-    }
+    dateFields.forEach(f => f.style.display = mode === 'date' ? '' : 'none');
+    syncDocketPickerVisibility();
     // Re-run with the new mode (date filter vs. docket selection).
     scheduleReportRun();
+}
+
+// The docket picker shows only in docket mode AND once a supplier is picked,
+// so the page opens clean (no empty picker) — matching how the date fields hide.
+function syncDocketPickerVisibility() {
+    const picker = document.getElementById('rpt-docket-picker');
+    if (!picker) return;
+    const supplier = document.getElementById('rpt-supplier').value;
+    picker.style.display = (reportMode === 'dockets' && supplier) ? '' : 'none';
 }
 
 async function onReportSupplierChange() {
@@ -2059,6 +2062,7 @@ async function onReportSupplierChange() {
     if (!supplier || !activeProjectId || !listEl) {
         reportDockets = [];
         if (listEl) listEl.innerHTML = '';
+        syncDocketPickerVisibility();
         scheduleReportRun();   // clears the output when the supplier is unset
         return;
     }
@@ -2074,6 +2078,7 @@ async function onReportSupplierChange() {
     } catch (e) {
         reportDockets = [];
     }
+    syncDocketPickerVisibility();
     scheduleReportRun();   // show the full report immediately on supplier select
 }
 

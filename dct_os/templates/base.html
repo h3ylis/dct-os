@@ -122,15 +122,15 @@
                     <div class="filter-field">
                         <label>Mode</label>
                         <div class="filter-pills" id="rpt-mode-pills">
-                            <button class="pill active" onclick="setReportMode('date', this)" data-tip="Filter by date range" data-tip-pos="below">Date Range</button>
-                            <button class="pill" onclick="setReportMode('dockets', this)" data-tip="Pick specific dockets to include" data-tip-pos="below">By Docket #</button>
+                            <button class="pill active" onclick="setReportMode('dockets', this)" data-tip="Pick specific dockets to include" data-tip-pos="below">By Docket #</button>
+                            <button class="pill" onclick="setReportMode('date', this)" data-tip="Filter by date range" data-tip-pos="below">Date Range</button>
                         </div>
                     </div>
-                    <div class="filter-field rpt-date-fields" id="rpt-date-fields">
+                    <div class="filter-field rpt-date-fields" id="rpt-date-fields" style="display:none">
                         <label>From</label>
                         <input type="date" id="rpt-date-from" onchange="scheduleReportRun()">
                     </div>
-                    <div class="filter-field rpt-date-fields" id="rpt-date-fields-to">
+                    <div class="filter-field rpt-date-fields" id="rpt-date-fields-to" style="display:none">
                         <label>To</label>
                         <input type="date" id="rpt-date-to" onchange="scheduleReportRun()">
                     </div>

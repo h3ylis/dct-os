@@ -2,6 +2,17 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
+## [1.2.3] - 2026-06-23
+
+### Changed
+
+- **Reports filter tidied up.** On the Reports screen, "By Docket #" is now the
+  default way to scope a report, and the From/To date fields appear only when you
+  pick "Date Range" — so the bar opens uncluttered. The mode buttons were also
+  resized to match the height of the supplier and date fields, and the layout
+  reordered so the date fields sit right beside the "Date Range" button that
+  reveals them.
+
 ## [1.2.2] - 2026-06-21
 
 ### Changed
