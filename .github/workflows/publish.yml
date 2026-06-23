@@ -47,3 +47,28 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Extract changelog notes for this tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v hdr="## [$VERSION]" 'index($0,hdr)==1{f=1;next} f&&index($0,"## [")==1{f=0} f{print}' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then printf 'Release %s\n' "$VERSION" > release_notes.md; fi
+
+      - name: Create GitHub Release from the changelog
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "DCT-OS ${GITHUB_REF_NAME#v}" \
+            --notes-file release_notes.md \
+            --verify-tag
