@@ -35,3 +35,4 @@ dct-os = "dct_os.app:main"
 [project.urls]
 Homepage = "https://github.com/h3ylis/dct-os"
 Issues = "https://github.com/h3ylis/dct-os/issues"
+Changelog = "https://github.com/h3ylis/dct-os/blob/master/CHANGELOG.md"
