@@ -407,8 +407,8 @@ body {
     border-color: var(--primary);
 }
 
-/* Reports "Mode" pills match the height of the adjoining fields (select/date). */
-#rpt-mode-pills .pill { padding: 8px 14px; font-size: 13px; }
+/* Reports "Status" pills match the height of the adjoining fields (select/date). */
+#rpt-status-pills .pill { padding: 8px 14px; font-size: 13px; }
 
 #project-list {
     flex: 1;

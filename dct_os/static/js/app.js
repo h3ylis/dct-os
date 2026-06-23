@@ -29,7 +29,7 @@ let cachedSuppliers = [];
 let docketLineCounter = 0;
 
 // Report state
-let reportMode = 'dockets';
+let reportStatus = 'unclaimed';
 let reportDockets = [];
 
 // Folder browse state
@@ -2035,25 +2035,20 @@ function scheduleReportRun() {
     _reportRunTimer = setTimeout(() => runDocketSummary({ silent: true }), 200);
 }
 
-function setReportMode(mode, btn) {
-    reportMode = mode;
-    document.querySelectorAll('#rpt-mode-pills .pill').forEach(p => p.classList.remove('active'));
+function setReportStatus(status, btn) {
+    reportStatus = status;
+    document.querySelectorAll('#rpt-status-pills .pill').forEach(p => p.classList.remove('active'));
     if (btn) btn.classList.add('active');
-
-    const dateFields = document.querySelectorAll('.rpt-date-fields');
-    dateFields.forEach(f => f.style.display = mode === 'date' ? '' : 'none');
-    syncDocketPickerVisibility();
-    // Re-run with the new mode (date filter vs. docket selection).
-    scheduleReportRun();
+    // Re-fetch the docket list for the new status filter (also re-runs the summary).
+    onReportSupplierChange();
 }
 
-// The docket picker shows only in docket mode AND once a supplier is picked,
-// so the page opens clean (no empty picker) — matching how the date fields hide.
+// The docket picker shows once a supplier is picked.
 function syncDocketPickerVisibility() {
     const picker = document.getElementById('rpt-docket-picker');
     if (!picker) return;
     const supplier = document.getElementById('rpt-supplier').value;
-    picker.style.display = (reportMode === 'dockets' && supplier) ? '' : 'none';
+    picker.style.display = supplier ? '' : 'none';
 }
 
 async function onReportSupplierChange() {
@@ -2067,12 +2062,15 @@ async function onReportSupplierChange() {
         return;
     }
 
-    const hideClaimed = document.getElementById('rpt-hide-claimed');
-    const unclaimedParam = hideClaimed && hideClaimed.checked ? '&unclaimed=1' : '';
+    const dateFrom = document.getElementById('rpt-date-from').value;
+    const dateTo = document.getElementById('rpt-date-to').value;
+    let qs = '?supplier=' + encodeURIComponent(supplier) + '&status=' + reportStatus;
+    if (dateFrom) qs += '&date_from=' + dateFrom;
+    if (dateTo) qs += '&date_to=' + dateTo;
 
     try {
         reportDockets = await apiFetch(
-            '/api/projects/' + activeProjectId + '/dockets/by-supplier?supplier=' + encodeURIComponent(supplier) + unclaimedParam
+            '/api/projects/' + activeProjectId + '/dockets/by-supplier' + qs
         );
         renderDocketPicker();
     } catch (e) {
@@ -2085,14 +2083,12 @@ async function onReportSupplierChange() {
 function renderDocketPicker() {
     const listEl = document.getElementById('rpt-docket-list');
     if (!listEl) return;
+    const selAll = document.getElementById('rpt-select-all');
+    if (selAll) selAll.checked = false;   // fresh list — nothing selected yet
     if (reportDockets.length === 0) {
-        // A supplier in the report always has dockets, so an empty list here
-        // means they're all claimed and hidden by the "Hide claimed" filter —
-        // say so plainly instead of the misleading "no dockets".
-        const hc = document.getElementById('rpt-hide-claimed');
-        const msg = (hc && hc.checked)
-            ? 'No unclaimed dockets. Untick "Hide claimed" above to show claimed ones.'
-            : 'No dockets for this supplier';
+        const msg = reportStatus === 'unclaimed' ? 'No unclaimed dockets for this supplier.'
+                  : reportStatus === 'claimed' ? 'No claimed dockets for this supplier.'
+                  : 'No dockets for this supplier.';
         listEl.innerHTML = '<div style="padding:8px;color:#999;font-size:12px">' + msg + '</div>';
         return;
     }
@@ -2139,10 +2135,12 @@ function _buildSummaryUrl(base) {
     if (!supplier) return null;
     let url = base + '?supplier=' + encodeURIComponent(supplier);
 
-    if (reportMode === 'dockets') {
-        const ids = getSelectedDocketIds();
-        if (ids.length > 0) url += '&docket_ids=' + ids.join(',');
+    const ids = getSelectedDocketIds();
+    if (ids.length > 0) {
+        url += '&docket_ids=' + ids.join(',');
     } else {
+        // Nothing picked → summarise the whole filtered set (status + dates).
+        url += '&status=' + reportStatus;
         const dateFrom = document.getElementById('rpt-date-from').value;
         const dateTo = document.getElementById('rpt-date-to').value;
         if (dateFrom) url += '&date_from=' + dateFrom;
@@ -2158,9 +2156,9 @@ async function runDocketSummary(opts) {
     const supplier = document.getElementById('rpt-supplier').value;
     if (!supplier) { if (!silent) toast('Select a supplier', 'error'); return; }
 
-    // In docket mode, an empty selection means "all of this supplier's dockets"
-    // (the URL builder simply omits docket_ids) — so there's always a full
-    // report to start from, which the user then narrows by picking dockets.
+    // An empty selection means "the whole filtered set" (the URL builder sends
+    // status + dates instead of docket_ids) — so there's always a report to
+    // start from, which the user then narrows by picking dockets.
 
     // New report generation — reset the rate-review session state
     editedRateKeys = new Set();
@@ -2319,16 +2317,7 @@ function renderDocketSummary(data) {
     if (claimBar) {
         claimBar.style.display = '';
         const claimLabel = claimBar.querySelector('.claim-label');
-        if (claimLabel) {
-            if (reportMode === 'dockets') {
-                claimLabel.textContent = 'Mark selected dockets as claimed:';
-            } else {
-                const n = (data.unclaimed_docket_ids || []).length;
-                claimLabel.textContent = n > 0
-                    ? 'Mark ' + n + ' unclaimed docket' + (n === 1 ? '' : 's') + ' in this range as claimed:'
-                    : 'Every docket in this range is already claimed';
-            }
-        }
+        if (claimLabel) claimLabel.textContent = 'Mark selected dockets as claimed:';
     }
 }
 
@@ -2550,33 +2539,22 @@ function exportDocketsXLSX() {
 
 // --- Claim / Unclaim Dockets ---
 
-// Which dockets a claim/unclaim acts on. In docket mode it's the chips you
-// picked. In date mode there's no per-docket selection, so claiming targets the
-// UNCLAIMED dockets in the range (already-claimed ones are left untouched) and
-// unclaiming targets the claimed ones.
-function getReportClaimTargets(action) {
-    if (reportMode === 'dockets') return getSelectedDocketIds().map(Number);
-    if (!lastSummaryData) return [];
-    const key = action === 'unclaim' ? 'claimed_docket_ids' : 'unclaimed_docket_ids';
-    return (lastSummaryData[key] || []).slice();
-}
-
 async function claimSelectedDockets() {
     if (!activeProjectId) return;
-    const ids = getReportClaimTargets('claim');
-    if (ids.length === 0) {
-        toast(reportMode === 'dockets' ? 'Select dockets to claim' : 'No unclaimed dockets in this range', 'error');
-        return;
-    }
+    const ids = getSelectedDocketIds().map(Number);
+    if (ids.length === 0) { toast('Select dockets to claim', 'error'); return; }
     const ref = document.getElementById('rpt-claim-ref').value.trim();
     if (!ref) { toast('Enter a claim reference', 'error'); return; }
 
     try {
-        await apiRequest('POST', '/api/projects/' + activeProjectId + '/dockets/claim', {
+        const res = await apiRequest('POST', '/api/projects/' + activeProjectId + '/dockets/claim', {
             docket_ids: ids,
             reference: ref,
         });
-        toast(ids.length + ' docket(s) claimed as ' + ref, 'success');
+        const claimed = (res && typeof res.claimed === 'number') ? res.claimed : ids.length;
+        const skipped = (res && res.skipped) ? res.skipped : 0;
+        toast(claimed + ' docket(s) claimed as ' + ref +
+            (skipped ? ' (' + skipped + ' already claimed, left unchanged)' : ''), 'success');
         document.getElementById('rpt-claim-ref').value = '';
         await onReportSupplierChange();
     } catch (e) { /* toasted */ }
@@ -2584,11 +2562,8 @@ async function claimSelectedDockets() {
 
 async function unclaimSelectedDockets() {
     if (!activeProjectId) return;
-    const ids = getReportClaimTargets('unclaim');
-    if (ids.length === 0) {
-        toast(reportMode === 'dockets' ? 'Select dockets to unclaim' : 'No claimed dockets in this range', 'error');
-        return;
-    }
+    const ids = getSelectedDocketIds().map(Number);
+    if (ids.length === 0) { toast('Select dockets to unclaim', 'error'); return; }
 
     try {
         await apiRequest('POST', '/api/projects/' + activeProjectId + '/dockets/unclaim', {

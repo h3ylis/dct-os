@@ -2,6 +2,20 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
+## [1.2.5] - 2026-06-23
+
+### Changed
+
+- **Reporting: one unified view.** The Reports screen no longer has a "By Docket #"
+  vs "Date Range" mode toggle. You always see the supplier's dockets, filtered by
+  **Status** (Unclaimed · Claimed · All) and an optional date range — so you can
+  always see and verify which dockets have been claimed, not just read a date
+  summary. Pick the dockets (or Select All) and Mark Claimed; the grouped cost
+  summary and export work exactly as before.
+- **Claims never overwrite.** Marking dockets claimed only ever sets a reference on
+  dockets that are currently unclaimed — already-claimed dockets keep their original
+  reference. To change a claim, Unclaim it first.
+
 ## [1.2.4] - 2026-06-23
 
 ### Fixed

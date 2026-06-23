@@ -120,19 +120,20 @@
                         <select id="rpt-supplier" onchange="onReportSupplierChange()"><option value="">-- Select Supplier --</option></select>
                     </div>
                     <div class="filter-field">
-                        <label>Mode</label>
-                        <div class="filter-pills" id="rpt-mode-pills">
-                            <button class="pill active" onclick="setReportMode('dockets', this)" data-tip="Pick specific dockets to include" data-tip-pos="below">By Docket #</button>
-                            <button class="pill" onclick="setReportMode('date', this)" data-tip="Filter by date range" data-tip-pos="below">Date Range</button>
+                        <label>Status</label>
+                        <div class="filter-pills" id="rpt-status-pills">
+                            <button class="pill active" onclick="setReportStatus('unclaimed', this)" data-tip="Dockets not yet claimed (default)" data-tip-pos="below">Unclaimed</button>
+                            <button class="pill" onclick="setReportStatus('claimed', this)" data-tip="Dockets already claimed — verify what's paid" data-tip-pos="below">Claimed</button>
+                            <button class="pill" onclick="setReportStatus('all', this)" data-tip="All dockets, claimed and unclaimed" data-tip-pos="below">All</button>
                         </div>
                     </div>
-                    <div class="filter-field rpt-date-fields" id="rpt-date-fields" style="display:none">
+                    <div class="filter-field rpt-date-fields" id="rpt-date-fields">
                         <label>From</label>
-                        <input type="date" id="rpt-date-from" onchange="scheduleReportRun()">
+                        <input type="date" id="rpt-date-from" onchange="onReportSupplierChange()">
                     </div>
-                    <div class="filter-field rpt-date-fields" id="rpt-date-fields-to" style="display:none">
+                    <div class="filter-field rpt-date-fields" id="rpt-date-fields-to">
                         <label>To</label>
-                        <input type="date" id="rpt-date-to" onchange="scheduleReportRun()">
+                        <input type="date" id="rpt-date-to" onchange="onReportSupplierChange()">
                     </div>
                     <div class="filter-actions">
                         <div class="dropdown" id="rpt-data-menu-wrap" style="display:none">
@@ -148,7 +149,6 @@
                     <div class="docket-picker-header">
                         <span class="docket-picker-title">Select dockets</span>
                         <div class="docket-picker-controls">
-                            <label class="docket-picker-toggle" data-tip="Hide dockets already tagged with a claim reference" data-tip-pos="below"><input type="checkbox" id="rpt-hide-claimed" onchange="onReportSupplierChange()" checked> Hide claimed</label>
                             <label class="docket-picker-toggle"><input type="checkbox" id="rpt-select-all" onchange="toggleAllDockets(this.checked)"> Select All</label>
                         </div>
                     </div>

@@ -432,6 +432,7 @@ def _build_summary_filter(project_id, args):
     date_from = args.get("date_from")
     date_to = args.get("date_to")
     docket_ids_raw = args.get("docket_ids")
+    status = args.get("status", "all")
 
     params = [project_id, supplier]
     where = "dh.project_id = ? AND dh.supplier_name = ?"
@@ -449,6 +450,10 @@ def _build_summary_filter(project_id, args):
         if date_to:
             where += " AND dh.date <= ?"
             params.append(date_to)
+        if status == "unclaimed":
+            where += " AND (dh.claimed_reference IS NULL OR dh.claimed_reference = '')"
+        elif status == "claimed":
+            where += " AND dh.claimed_reference IS NOT NULL AND dh.claimed_reference != ''"
 
     return where, params, None
 
@@ -492,19 +497,6 @@ def docket_summary(project_id):
 
     rows = _run_summary_query(db, where, params)
 
-    # Split the dockets this report covers (same filter) by claim status, so the
-    # claim bar can target them in date mode: claiming acts on the unclaimed ones
-    # (already-claimed are left untouched), unclaiming on the claimed ones.
-    covered = db.execute(
-        f"""SELECT DISTINCT dh.id, dh.claimed_reference
-            FROM docket_lines dl
-            JOIN docket_headers dh ON dl.docket_id = dh.id
-            WHERE {where}""",
-        params,
-    ).fetchall()
-    unclaimed_docket_ids = [row[0] for row in covered if not row[1]]
-    claimed_docket_ids = [row[0] for row in covered if row[1]]
-
     groups = {}
     grand_total = 0
     for r in rows:
@@ -521,8 +513,6 @@ def docket_summary(project_id):
         "date_from": request.args.get("date_from"),
         "date_to": request.args.get("date_to"),
         "docket_ids": request.args.get("docket_ids"),
-        "unclaimed_docket_ids": unclaimed_docket_ids,
-        "claimed_docket_ids": claimed_docket_ids,
         "groups": list(groups.values()),
         "grand_total": grand_total,
     })
@@ -673,8 +663,22 @@ def list_dockets_by_supplier(project_id):
     where = "dh.project_id = ? AND dh.supplier_name = ?"
     params = [project_id, supplier]
 
-    if request.args.get("unclaimed") == "1":
+    # Status filter: unclaimed / claimed / all (+ legacy unclaimed=1). The
+    # endpoint default is "all"; the Reports UI always sends an explicit status.
+    status = request.args.get("status", "all")
+    if status == "unclaimed" or request.args.get("unclaimed") == "1":
         where += " AND (dh.claimed_reference IS NULL OR dh.claimed_reference = '')"
+    elif status == "claimed":
+        where += " AND dh.claimed_reference IS NOT NULL AND dh.claimed_reference != ''"
+
+    date_from = request.args.get("date_from")
+    date_to = request.args.get("date_to")
+    if date_from:
+        where += " AND dh.date >= ?"
+        params.append(date_from)
+    if date_to:
+        where += " AND dh.date <= ?"
+        params.append(date_to)
 
     rows = db.execute(
         f"""SELECT dh.id, dh.date, dh.docket_number,
@@ -706,15 +710,20 @@ def claim_dockets(project_id):
         return jsonify({"error": "reference is required"}), 400
 
     placeholders = ",".join("?" * len(docket_ids))
-    db.execute(
+    # Never overwrite an existing claim — only set the reference on dockets that
+    # are currently unclaimed. To change a claim, unclaim first then re-claim.
+    cur = db.execute(
         f"""UPDATE docket_headers
             SET claimed_reference = ?, claimed_at = datetime('now'),
                 updated_at = datetime('now')
-            WHERE id IN ({placeholders}) AND project_id = ?""",
+            WHERE id IN ({placeholders}) AND project_id = ?
+              AND (claimed_reference IS NULL OR claimed_reference = '')""",
         [reference] + list(docket_ids) + [project_id],
     )
     db.commit()
-    return jsonify({"claimed": len(docket_ids), "reference": reference})
+    claimed = cur.rowcount
+    return jsonify({"claimed": claimed, "skipped": len(docket_ids) - claimed,
+                    "reference": reference})
 
 
 @bp.route("/projects/<int:project_id>/dockets/unclaim", methods=["POST"])
