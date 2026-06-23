@@ -2086,7 +2086,14 @@ function renderDocketPicker() {
     const listEl = document.getElementById('rpt-docket-list');
     if (!listEl) return;
     if (reportDockets.length === 0) {
-        listEl.innerHTML = '<div style="padding:8px;color:#999;font-size:12px">No dockets for this supplier</div>';
+        // A supplier in the report always has dockets, so an empty list here
+        // means they're all claimed and hidden by the "Hide claimed" filter —
+        // say so plainly instead of the misleading "no dockets".
+        const hc = document.getElementById('rpt-hide-claimed');
+        const msg = (hc && hc.checked)
+            ? 'No unclaimed dockets. Untick "Hide claimed" above to show claimed ones.'
+            : 'No dockets for this supplier';
+        listEl.innerHTML = '<div style="padding:8px;color:#999;font-size:12px">' + msg + '</div>';
         return;
     }
     listEl.innerHTML = reportDockets.map(d => {
@@ -2305,10 +2312,23 @@ function renderDocketSummary(data) {
     output.innerHTML = html;
     showReportDataMenu(true);   // a real report is on screen — expose its export menu
 
-    // Show claim bar when in docket mode
+    // Claim bar shows for any report on screen. In docket mode you claim the
+    // chips you pick; in date mode there's no per-docket selection, so claiming
+    // acts on every docket the report covers — the label spells out how many.
     const claimBar = document.getElementById('rpt-claim-bar');
     if (claimBar) {
-        claimBar.style.display = reportMode === 'dockets' ? '' : 'none';
+        claimBar.style.display = '';
+        const claimLabel = claimBar.querySelector('.claim-label');
+        if (claimLabel) {
+            if (reportMode === 'dockets') {
+                claimLabel.textContent = 'Mark selected dockets as claimed:';
+            } else {
+                const n = (data.unclaimed_docket_ids || []).length;
+                claimLabel.textContent = n > 0
+                    ? 'Mark ' + n + ' unclaimed docket' + (n === 1 ? '' : 's') + ' in this range as claimed:'
+                    : 'Every docket in this range is already claimed';
+            }
+        }
     }
 }
 
@@ -2530,10 +2550,24 @@ function exportDocketsXLSX() {
 
 // --- Claim / Unclaim Dockets ---
 
+// Which dockets a claim/unclaim acts on. In docket mode it's the chips you
+// picked. In date mode there's no per-docket selection, so claiming targets the
+// UNCLAIMED dockets in the range (already-claimed ones are left untouched) and
+// unclaiming targets the claimed ones.
+function getReportClaimTargets(action) {
+    if (reportMode === 'dockets') return getSelectedDocketIds().map(Number);
+    if (!lastSummaryData) return [];
+    const key = action === 'unclaim' ? 'claimed_docket_ids' : 'unclaimed_docket_ids';
+    return (lastSummaryData[key] || []).slice();
+}
+
 async function claimSelectedDockets() {
     if (!activeProjectId) return;
-    const ids = getSelectedDocketIds().map(Number);
-    if (ids.length === 0) { toast('Select dockets to claim', 'error'); return; }
+    const ids = getReportClaimTargets('claim');
+    if (ids.length === 0) {
+        toast(reportMode === 'dockets' ? 'Select dockets to claim' : 'No unclaimed dockets in this range', 'error');
+        return;
+    }
     const ref = document.getElementById('rpt-claim-ref').value.trim();
     if (!ref) { toast('Enter a claim reference', 'error'); return; }
 
@@ -2550,8 +2584,11 @@ async function claimSelectedDockets() {
 
 async function unclaimSelectedDockets() {
     if (!activeProjectId) return;
-    const ids = getSelectedDocketIds().map(Number);
-    if (ids.length === 0) { toast('Select dockets to unclaim', 'error'); return; }
+    const ids = getReportClaimTargets('unclaim');
+    if (ids.length === 0) {
+        toast(reportMode === 'dockets' ? 'Select dockets to unclaim' : 'No claimed dockets in this range', 'error');
+        return;
+    }
 
     try {
         await apiRequest('POST', '/api/projects/' + activeProjectId + '/dockets/unclaim', {

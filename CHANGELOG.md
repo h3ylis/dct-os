@@ -2,6 +2,18 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
+## [1.2.4] - 2026-06-23
+
+### Fixed
+
+- **Claiming now works in the Reports "Date Range" view.** The claim section only
+  appeared in "By Docket #" mode. In Date Range mode it now shows and marks the
+  supplier's dockets in the selected range as claimed — and it skips any that are
+  already claimed, so existing claim references are never overwritten.
+- **Clearer empty docket picker.** When every docket for a supplier is already
+  claimed, the picker now reads "No unclaimed dockets. Untick 'Hide claimed' to
+  show claimed ones" instead of the misleading "No dockets for this supplier".
+
 ## [1.2.3] - 2026-06-23
 
 ### Changed

@@ -492,6 +492,19 @@ def docket_summary(project_id):
 
     rows = _run_summary_query(db, where, params)
 
+    # Split the dockets this report covers (same filter) by claim status, so the
+    # claim bar can target them in date mode: claiming acts on the unclaimed ones
+    # (already-claimed are left untouched), unclaiming on the claimed ones.
+    covered = db.execute(
+        f"""SELECT DISTINCT dh.id, dh.claimed_reference
+            FROM docket_lines dl
+            JOIN docket_headers dh ON dl.docket_id = dh.id
+            WHERE {where}""",
+        params,
+    ).fetchall()
+    unclaimed_docket_ids = [row[0] for row in covered if not row[1]]
+    claimed_docket_ids = [row[0] for row in covered if row[1]]
+
     groups = {}
     grand_total = 0
     for r in rows:
@@ -508,6 +521,8 @@ def docket_summary(project_id):
         "date_from": request.args.get("date_from"),
         "date_to": request.args.get("date_to"),
         "docket_ids": request.args.get("docket_ids"),
+        "unclaimed_docket_ids": unclaimed_docket_ids,
+        "claimed_docket_ids": claimed_docket_ids,
         "groups": list(groups.values()),
         "grand_total": grand_total,
     })
