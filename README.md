@@ -2,6 +2,8 @@
 
 **Daily cost tracking, done right.**
 
+> **No AI. No cloud. Your numbers never leave your laptop — by design.**
+
 DCT-OS is a cost tracking platform built for civil engineering — project managers, site engineers, and contractors who need to track daily costs without fighting enterprise software. SQLite-backed, self-hostable, and ready to deploy.
 
 ## Features
