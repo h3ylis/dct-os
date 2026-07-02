@@ -2,6 +2,26 @@
 
 All notable changes to DCT-OS will be documented in this file.
 
+## [1.2.6] - 2026-07-02
+
+### Changed
+
+- **The database now lives in a per-user folder.** DCT-OS keeps its database in
+  your per-user application folder (e.g. `%LOCALAPPDATA%\DCT-OS` on Windows)
+  rather than the folder it happens to be launched from — so it can't end up in a
+  synced (OneDrive) or protected location where writes are silently blocked. An
+  existing database in the launch folder is picked up automatically and kept.
+
+### Added
+
+- **A clear message when the database can't be saved.** If antivirus or ransomware
+  protection (e.g. Bitdefender, Windows Controlled Folder Access) or a read-only
+  folder is blocking DCT-OS, startup now says so — and how to fix it (allow-list
+  DCT-OS, or set `DCT_DATA_DIR` to a writable folder) — instead of failing silently
+  the first time you try to create a project.
+- **A first-run summary** on launch showing where your data is stored and the
+  address to open DCT-OS.
+
 ## [1.2.5] - 2026-06-23
 
 ### Changed

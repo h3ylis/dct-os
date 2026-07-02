@@ -16,6 +16,36 @@ from dct_os import db as database
 from dct_os.api import api
 
 
+def _ensure_db_writable(db_path):
+    """Fail early and loudly if the database folder can't be written to.
+
+    A silent write failure on the first save is the worst first-use experience —
+    it usually means antivirus / ransomware protection (Bitdefender, Windows
+    Controlled Folder Access) is blocking DCT-OS, or the folder is read-only or
+    on a syncing service. Better a clear message now than a mysterious "can't
+    create a project" later.
+    """
+    folder = Path(db_path).parent
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        probe = folder / ".dctos_write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except Exception as exc:
+        sys.stderr.write(
+            "\nDCT-OS can't write its database to:\n"
+            f"  {db_path}\n\n"
+            f"  Reason: {exc}\n\n"
+            "This usually means antivirus / ransomware protection (e.g. Bitdefender,\n"
+            "or Windows Controlled Folder Access) is blocking DCT-OS, or the folder\n"
+            "is read-only or syncing (OneDrive / Dropbox). To fix it:\n"
+            "  - allow DCT-OS in your antivirus / ransomware protection, or\n"
+            "  - point DCT-OS at a writable folder, e.g. on Windows:\n"
+            "      set DCT_DATA_DIR=%USERPROFILE%\\Documents\\DCT-OS\n\n"
+        )
+        sys.exit(1)
+
+
 def create_app(test_config=None):
     app = Flask(
         __name__,
@@ -25,18 +55,33 @@ def create_app(test_config=None):
     )
 
     if test_config is None:
-        # Check config for last-used database, fall back to default
-        from dct_os.database_manager import load_config, acquire_lock, rotate_backup
+        # Resolve which database to run against, then make sure we can write it.
+        from dct_os.database_manager import (
+            load_config, acquire_lock, rotate_backup, default_db_path, add_recent,
+        )
         config = load_config()
         last_db = config.get("last_database")
 
         if last_db and Path(last_db).exists():
+            # 1. The database you last opened (explicit choice via the picker).
             db_path = Path(last_db)
+        elif os.environ.get("DCT_DATA_DIR"):
+            # 2. Explicit override (the installer's auto-start sets this).
+            db_path = Path(os.environ["DCT_DATA_DIR"]) / "dct_os.db"
         else:
-            data_dir = Path(os.environ.get("DCT_DATA_DIR", "."))
-            db_path = data_dir / "dct_os.db"
+            # 3. Per-user default — a guaranteed-writable per-OS folder. If an
+            #    older database exists in the launch folder, carry it forward and
+            #    pin it so it sticks no matter where you launch next time.
+            db_path = default_db_path()
+            legacy = Path("dct_os.db")
+            if not db_path.exists() and legacy.exists():
+                db_path = legacy.resolve()
+                add_recent(str(db_path))
 
-        app.config["DATABASE"] = str(db_path.resolve())
+        db_path = db_path.resolve()
+        _ensure_db_writable(db_path)
+        app.config["DATABASE"] = str(db_path)
+        app.config["DB_EXISTED"] = db_path.exists()
         acquire_lock(app.config["DATABASE"])
         rotate_backup(app.config["DATABASE"])
     else:
@@ -431,7 +476,11 @@ def main():
     if not debug and "--no-browser" not in sys.argv:
         webbrowser.open(f"http://{browse_host}:{port}")
 
-    print(f"DCT-OS v{__version__} running at http://{browse_host}:{port}")
+    db_file = app.config.get("DATABASE", "")
+    db_is_new = not app.config.get("DB_EXISTED", True)
+    print(f"DCT-OS v{__version__}")
+    print(f"  Database: {db_file}" + ("   (new - sample project added)" if db_is_new else ""))
+    print(f"  Open:     http://{browse_host}:{port}")
     app.run(host=host, port=port, debug=debug)
 
 

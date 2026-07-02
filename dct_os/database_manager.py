@@ -34,6 +34,15 @@ def get_config_path():
     return _get_config_dir() / "config.json"
 
 
+def default_db_path():
+    """Default per-user database location — the same writable, per-OS folder as
+    the config (%LOCALAPPDATA%\\DCT-OS on Windows, ~/Library/Application Support
+    on macOS, ~/.config on Linux). Chosen so a plain `dct-os` run never lands its
+    database in a synced or protected folder (OneDrive, Documents) where writes
+    can be silently blocked."""
+    return _get_config_dir() / "dct_os.db"
+
+
 def load_config():
     path = get_config_path()
     if path.exists():
